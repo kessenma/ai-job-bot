@@ -30,6 +30,9 @@ Thumbs.db
 # Data files
 *.csv
 
+# Duplicate assets
+apps/web/assets/
+
 # Token files
 .gmail-token.json
 .sheet-config.json

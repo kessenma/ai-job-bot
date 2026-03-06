@@ -3,12 +3,21 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+      target: runner
+      args:
+        NODE_ENV: production
+    env_file:
+      - ./.env
+    environment:
+      PORT: 3000
+      HOST: "0.0.0.0"
+      NODE_ENV: production
+      DATA_DIR: /app/data
     ports:
       - "3000:3000"
     volumes:
+      # Persist SQLite DB, uploads, OAuth tokens across restarts
       - app-data:/app/data
-    env_file:
-      - ./apps/web/.env
     restart: unless-stopped
 
   # Future: on-prem LLM for cover letter generation

@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+.output/
+.vinxi/
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+.gmail-token.json
+.sheet-config.json
+
+# User data
+uploads/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.csv
+
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Docker
+Dockerfile*
+docker-compose*
+.dockerignore
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+
+# Tests
+**/*.test.*
+**/*.spec.*
+coverage/
+
+# Docs
+*.md
+
+# Duplicate assets
+apps/web/assets/
