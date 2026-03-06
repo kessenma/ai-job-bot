@@ -1,0 +1,35 @@
+node_modules/
+dist/
+.output/
+.vinxi/
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+
+# Uploads (user data)
+uploads/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Data files
+*.csv
+
+# Token files
+.gmail-token.json
+.sheet-config.json
