@@ -40,9 +40,6 @@ apps/web/assets/
 .mcp.json
 apps/web/.mcp.json
 
-# Lock files (using pnpm-lock.yaml)
-bun.lock
-
 # Misc
 docker-logs.md
 
