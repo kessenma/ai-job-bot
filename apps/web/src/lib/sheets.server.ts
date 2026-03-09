@@ -5,7 +5,8 @@ import { classifyATS } from './ats-classifier.ts'
 import { getAuthenticatedClient, isAuthenticated } from './gmail.server.ts'
 import type { JobLead } from './types.ts'
 
-const SHEET_CONFIG_PATH = resolve(process.cwd(), 'uploads', '.sheet-config.json')
+const DATA_DIR = process.env.DATA_DIR || resolve(process.cwd(), 'data')
+const SHEET_CONFIG_PATH = resolve(DATA_DIR, 'uploads', '.sheet-config.json')
 
 // Map from possible sheet header names to our internal field names
 const HEADER_MAP: Record<string, keyof Omit<JobLead, 'atsPlatform'>> = {
