@@ -2,7 +2,6 @@ import { createServerFn } from '@tanstack/react-start'
 import { db, schema } from '@job-app-bot/db'
 import { eq } from 'drizzle-orm'
 import { loadJobs } from './jobs.server.ts'
-import { saveFile, deleteFile } from './uploads.server.ts'
 
 export const getJobs = createServerFn({ method: 'GET' }).handler(async () => {
   return loadJobs()
@@ -55,6 +54,7 @@ export const attachCoverLetterToJob = createServerFn({ method: 'POST' })
 export const uploadCoverLetterForJob = createServerFn({ method: 'POST' })
   .inputValidator((data: { jobUrl: string; fileName: string; base64Data: string }) => data)
   .handler(async ({ data }) => {
+    const { saveFile } = await import('./uploads.server.ts')
     const file = await saveFile('cover-letter', data.fileName, data.base64Data)
     await db
       .insert(schema.jobCoverLetters)
