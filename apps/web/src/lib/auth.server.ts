@@ -1,17 +1,15 @@
 import { createHmac } from 'node:crypto'
-import { getCookie, setCookie, deleteCookie } from 'vinxi/http'
+import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs'
+import { resolve } from 'node:path'
 
-const COOKIE_NAME = 'session'
-const COOKIE_MAX_AGE = 60 * 60 * 24 * 7 // 7 days
+const DATA_DIR = process.env.DATA_DIR || resolve(process.cwd(), 'data')
+const SESSION_PATH = resolve(DATA_DIR, 'uploads', '.session-token')
+const SESSION_MAX_AGE = 7 * 24 * 60 * 60 * 1000 // 7 days
 
 function getAppPassword(): string {
   const pw = process.env.APP_PASSWORD
   if (!pw) throw new Error('APP_PASSWORD env var is not set')
   return pw
-}
-
-function makeSessionToken(): string {
-  return createHmac('sha256', getAppPassword()).update('session').digest('hex')
 }
 
 export function verifyPassword(password: string): boolean {
@@ -20,23 +18,27 @@ export function verifyPassword(password: string): boolean {
 
 export function isSessionValid(): boolean {
   try {
-    const cookie = getCookie(COOKIE_NAME)
-    return cookie === makeSessionToken()
+    if (!existsSync(SESSION_PATH)) return false
+    const data = JSON.parse(readFileSync(SESSION_PATH, 'utf-8'))
+    const expected = createHmac('sha256', getAppPassword()).update('session').digest('hex')
+    if (data.token !== expected) return false
+    if (Date.now() - data.createdAt > SESSION_MAX_AGE) {
+      unlinkSync(SESSION_PATH)
+      return false
+    }
+    return true
   } catch {
     return false
   }
 }
 
 export function createSession(): void {
-  setCookie(COOKIE_NAME, makeSessionToken(), {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    path: '/',
-    maxAge: COOKIE_MAX_AGE,
-  })
+  const token = createHmac('sha256', getAppPassword()).update('session').digest('hex')
+  writeFileSync(SESSION_PATH, JSON.stringify({ token, createdAt: Date.now() }))
 }
 
 export function destroySession(): void {
-  deleteCookie(COOKIE_NAME)
+  if (existsSync(SESSION_PATH)) {
+    unlinkSync(SESSION_PATH)
+  }
 }

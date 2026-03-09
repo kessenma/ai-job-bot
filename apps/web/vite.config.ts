@@ -22,7 +22,7 @@ const config = defineConfig({
     resolve: {
       conditions: ['bun'],
     },
-    external: ['bun:sqlite', 'better-sqlite3', 'vinxi/http'],
+    external: ['bun:sqlite', 'better-sqlite3'],
   },
   resolve: {
     alias: {
