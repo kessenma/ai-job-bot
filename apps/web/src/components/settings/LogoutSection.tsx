@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import { CircleNotch, SignOut } from '@phosphor-icons/react'
 import { useRouter } from '@tanstack/react-router'
-import { disconnectGmailAccount } from '#/lib/gmail.api.ts'
+import { logoutSession } from '#/lib/gmail.api.ts'
 
 export function LogoutSection() {
   const router = useRouter()
@@ -10,7 +10,7 @@ export function LogoutSection() {
   const handleLogout = useCallback(async () => {
     setLoggingOut(true)
     try {
-      await disconnectGmailAccount()
+      await logoutSession()
       await router.navigate({ to: '/' })
       router.invalidate()
     } catch {
@@ -25,7 +25,7 @@ export function LogoutSection() {
         Account
       </h2>
       <p className="mb-4 text-sm text-[var(--sea-ink-soft)]">
-        Sign out of your Google account. This will disconnect Gmail and Google Sheets.
+        Sign out of your account.
       </p>
       <button
         onClick={handleLogout}

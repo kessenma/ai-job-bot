@@ -1,11 +1,11 @@
-import { createFileRoute, Link } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { useState, useCallback } from 'react'
 import {
-  Tray, MagnifyingGlass, Link as LinkIcon, LinkBreak, CheckCircle, XCircle,
+  Tray, MagnifyingGlass, CheckCircle, XCircle,
   ChatCenteredDots, CircleNotch, CaretDown, CaretUp, EnvelopeSimple,
 } from '@phosphor-icons/react'
 import { getJobs } from '#/lib/jobs.api.ts'
-import { getGmailStatus, scanOneCompany, getSavedEmails, disconnectGmailAccount } from '#/lib/gmail.api.ts'
+import { getGmailStatus, scanOneCompany, getSavedEmails } from '#/lib/gmail.api.ts'
 import type { ScanResult, ScannedEmail } from '#/lib/gmail.server.ts'
 import { ProgressBar, StatCard, ErrorAlert } from '#/components/ui/index.ts'
 import { requireAuth } from '#/lib/auth-guard.ts'
@@ -25,9 +25,7 @@ export const Route = createFileRoute('/email-scan')({
 
 function EmailScan() {
   const { jobs, gmailStatus: initialStatus, savedEmails } = Route.useLoaderData()
-  const configured = initialStatus.configured
-  const [connected, setConnected] = useState(initialStatus.connected)
-  const [authUrl] = useState(initialStatus.authUrl)
+  const connected = initialStatus.connected
   const [scanning, setScanning] = useState(false)
   const [scanProgress, setScanProgress] = useState({ current: 0, total: 0, currentCompany: '' })
   const [results, setResults] = useState<ScanResult[] | null>(
@@ -66,12 +64,6 @@ function EmailScan() {
     setScanning(false)
   }, [companies])
 
-  const handleDisconnect = useCallback(async () => {
-    await disconnectGmailAccount()
-    setConnected(false)
-    setResults(null)
-  }, [])
-
   const allResults = results ?? []
   const rejections = allResults.filter((r) => r.suggestedStatus === 'rejection')
   const interviews = allResults.filter((r) => r.suggestedStatus === 'interview')
@@ -89,41 +81,11 @@ function EmailScan() {
         Scan your Gmail for rejection and interview emails to auto-update job statuses.
       </p>
 
-      {/* Connection status */}
-      <section className="island-shell mb-6 rounded-2xl p-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <EnvelopeSimple className="h-5 w-5 text-[var(--lagoon)]" />
-            <div>
-              <div className="font-semibold text-[var(--sea-ink)]">Gmail Connection</div>
-              <div className="text-sm text-[var(--sea-ink-soft)]">
-                {!configured
-                  ? 'Google API credentials not configured. See setup instructions below.'
-                  : connected
-                    ? 'Your Gmail account is connected (read-only access).'
-                    : 'Connect your Gmail to scan for application responses.'}
-              </div>
-            </div>
-          </div>
-          {connected ? (
-            <button
-              onClick={handleDisconnect}
-              className="flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-600 transition hover:bg-red-100"
-            >
-              <LinkBreak className="h-3.5 w-3.5" />
-              Disconnect
-            </button>
-          ) : configured ? (
-            <a
-              href={authUrl ?? '#'}
-              className="flex items-center gap-1.5 rounded-full bg-[var(--lagoon)] px-4 py-2 text-sm font-medium text-white no-underline transition hover:opacity-90"
-            >
-              <LinkIcon className="h-3.5 w-3.5" />
-              Connect Gmail
-            </a>
-          ) : null}
+      {!connected && (
+        <div className="island-shell mb-6 rounded-2xl p-4 text-sm text-amber-700 border border-amber-200 bg-amber-50">
+          Gmail is not connected. Contact the administrator to set up the Gmail connection.
         </div>
-      </section>
+      )}
 
       {/* Scan controls */}
       {connected && (
@@ -227,20 +189,6 @@ function EmailScan() {
         </div>
       )}
 
-      {/* Setup link */}
-      {!configured && (
-        <section className="island-shell rounded-2xl p-6 text-center">
-          <p className="mb-3 text-sm text-[var(--sea-ink-soft)]">
-            Google API credentials are not configured yet.
-          </p>
-          <Link
-            to="/setup"
-            className="inline-flex items-center gap-2 rounded-full bg-[var(--lagoon)] px-6 py-2.5 text-sm font-medium text-white no-underline transition hover:opacity-90"
-          >
-            View Setup Guide
-          </Link>
-        </section>
-      )}
     </main>
   )
 }

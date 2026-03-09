@@ -1,56 +1,40 @@
 import { createServerFn } from '@tanstack/react-start'
 import {
-  getAuthUrl,
   isAuthenticated,
   isConfigured,
-  scanAllCompanies,
   scanEmailsForCompany,
-  disconnectGmail,
-  handleAuthCallback,
   sendEmail,
 } from './gmail.server.ts'
 import { saveScannedEmails, loadSavedEmails, getSavedEmailCount } from './emails.server.ts'
+import { isSessionValid, verifyPassword, createSession, destroySession } from './auth.server.ts'
 import type { ScanResult, EmailClassification } from './gmail.server.ts'
 
 export const getAuthState = createServerFn({ method: 'GET' }).handler(() => {
-  try {
-    const configured = isConfigured()
-    const authenticated = configured && isAuthenticated()
-    return {
-      configured,
-      authenticated,
-      authUrl: configured && !authenticated ? getAuthUrl() : null,
+  return { authenticated: isSessionValid() }
+})
+
+export const loginWithPassword = createServerFn({ method: 'POST' })
+  .inputValidator((data: { password: string }) => data)
+  .handler(({ data }) => {
+    if (!verifyPassword(data.password)) {
+      return { success: false as const, error: 'Invalid password' }
     }
-  } catch {
-    return { configured: false, authenticated: false, authUrl: null }
-  }
+    createSession()
+    return { success: true as const, error: null }
+  })
+
+export const logoutSession = createServerFn({ method: 'POST' }).handler(() => {
+  destroySession()
+  return { success: true }
 })
 
 export const getGmailStatus = createServerFn({ method: 'GET' }).handler(async () => {
-  const configured = isConfigured()
-  const connected = configured && isAuthenticated()
+  const connected = isConfigured() && isAuthenticated()
   return {
-    configured,
     connected,
-    authUrl: configured && !connected ? getAuthUrl() : null,
     savedEmailCount: await getSavedEmailCount(),
   }
 })
-
-export const exchangeGmailCode = createServerFn({ method: 'POST' })
-  .inputValidator((data: { code: string }) => data)
-  .handler(async ({ data }) => {
-    await handleAuthCallback(data.code)
-    return { success: true }
-  })
-
-export const scanEmails = createServerFn({ method: 'POST' })
-  .inputValidator((data: { companies: string[] }) => data)
-  .handler(async ({ data }): Promise<ScanResult[]> => {
-    const results = await scanAllCompanies(data.companies)
-    await saveScannedEmails(results)
-    return results
-  })
 
 export const scanOneCompany = createServerFn({ method: 'POST' })
   .inputValidator((data: { company: string }) => data)
@@ -72,11 +56,6 @@ export const scanOneCompany = createServerFn({ method: 'POST' })
 
 export const getSavedEmails = createServerFn({ method: 'GET' }).handler(() => {
   return loadSavedEmails()
-})
-
-export const disconnectGmailAccount = createServerFn({ method: 'POST' }).handler(() => {
-  disconnectGmail()
-  return { success: true }
 })
 
 export const sendGmailEmail = createServerFn({ method: 'POST' })

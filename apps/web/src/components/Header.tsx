@@ -8,19 +8,18 @@ import Dock from './Dock'
 export default function Header() {
   const navigate = useNavigate()
   const routerState = useRouterState()
-  const rootContext = routerState.matches[0]?.context as { auth?: { authenticated: boolean; authUrl?: string | null } } | undefined
+  const rootContext = routerState.matches[0]?.context as { auth?: { authenticated: boolean } } | undefined
   const authenticated = rootContext?.auth?.authenticated ?? false
-  const authUrl = rootContext?.auth?.authUrl
   const currentPath = routerState.location.pathname
 
   if (authenticated) {
     return <AuthenticatedNav navigate={navigate} />
   }
 
-  return <UnauthenticatedNav authUrl={authUrl} currentPath={currentPath} />
+  return <UnauthenticatedNav currentPath={currentPath} />
 }
 
-function UnauthenticatedNav({ authUrl, currentPath }: { authUrl?: string | null; currentPath: string }) {
+function UnauthenticatedNav({ currentPath }: { currentPath: string }) {
   return (
     <div className="fixed top-0 z-50 w-full flex justify-center">
       <PillNav
@@ -29,7 +28,6 @@ function UnauthenticatedNav({ authUrl, currentPath }: { authUrl?: string | null;
         items={[
           { href: '/', label: 'Home' },
           { href: '/about', label: 'About' },
-          ...(authUrl ? [{ href: authUrl, label: 'Sign In' }] : []),
         ]}
         activeHref={currentPath}
         baseColor="var(--header-bg, #1a1a2e)"
