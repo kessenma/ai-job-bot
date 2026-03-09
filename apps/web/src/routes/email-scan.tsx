@@ -1,9 +1,9 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useState, useCallback } from 'react'
 import {
-  Inbox, Search, Link2, Unlink, CheckCircle, XCircle,
-  MessageSquare, Loader2, ChevronDown, ChevronUp, Mail,
-} from 'lucide-react'
+  Tray, MagnifyingGlass, Link as LinkIcon, LinkBreak, CheckCircle, XCircle,
+  ChatCenteredDots, CircleNotch, CaretDown, CaretUp, EnvelopeSimple,
+} from '@phosphor-icons/react'
 import { getJobs } from '#/lib/jobs.api.ts'
 import { getGmailStatus, scanOneCompany, getSavedEmails, disconnectGmailAccount } from '#/lib/gmail.api.ts'
 import type { ScanResult, ScannedEmail } from '#/lib/gmail.server.ts'
@@ -82,7 +82,7 @@ function EmailScan() {
   return (
     <main className="page-wrap px-4 pb-8 pt-14">
       <h1 className="mb-2 flex items-center gap-2 text-2xl font-bold text-[var(--sea-ink)]">
-        <Inbox className="h-6 w-6 text-[var(--lagoon)]" />
+        <Tray className="h-6 w-6 text-[var(--lagoon)]" />
         Email Scanner
       </h1>
       <p className="mb-6 text-sm text-[var(--sea-ink-soft)]">
@@ -93,7 +93,7 @@ function EmailScan() {
       <section className="island-shell mb-6 rounded-2xl p-6">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <Mail className="h-5 w-5 text-[var(--lagoon)]" />
+            <EnvelopeSimple className="h-5 w-5 text-[var(--lagoon)]" />
             <div>
               <div className="font-semibold text-[var(--sea-ink)]">Gmail Connection</div>
               <div className="text-sm text-[var(--sea-ink-soft)]">
@@ -110,7 +110,7 @@ function EmailScan() {
               onClick={handleDisconnect}
               className="flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-600 transition hover:bg-red-100"
             >
-              <Unlink className="h-3.5 w-3.5" />
+              <LinkBreak className="h-3.5 w-3.5" />
               Disconnect
             </button>
           ) : configured ? (
@@ -118,7 +118,7 @@ function EmailScan() {
               href={authUrl ?? '#'}
               className="flex items-center gap-1.5 rounded-full bg-[var(--lagoon)] px-4 py-2 text-sm font-medium text-white no-underline transition hover:opacity-90"
             >
-              <Link2 className="h-3.5 w-3.5" />
+              <LinkIcon className="h-3.5 w-3.5" />
               Connect Gmail
             </a>
           ) : null}
@@ -134,9 +134,9 @@ function EmailScan() {
             className="flex items-center gap-2 rounded-full bg-[var(--lagoon)] px-6 py-2.5 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
           >
             {scanning ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
+              <CircleNotch className="h-4 w-4 animate-spin" />
             ) : (
-              <Search className="h-4 w-4" />
+              <MagnifyingGlass className="h-4 w-4" />
             )}
             {scanning ? 'Scanning emails...' : `Scan Emails (${companies.length} companies)`}
           </button>
@@ -202,7 +202,7 @@ function EmailScan() {
           {applied.length > 0 && (
             <ResultSection
               title="Applied / Acknowledgments"
-              icon={<Mail className="h-5 w-5 text-blue-600" />}
+              icon={<EnvelopeSimple className="h-5 w-5 text-blue-600" />}
               results={applied}
               colorClass="border-blue-200"
             />
@@ -212,7 +212,7 @@ function EmailScan() {
           {other.length > 0 && (
             <ResultSection
               title="Other Emails (no clear signal)"
-              icon={<MessageSquare className="h-5 w-5 text-gray-500" />}
+              icon={<ChatCenteredDots className="h-5 w-5 text-gray-500" />}
               results={other}
               colorClass="border-gray-200"
             />
@@ -292,9 +292,9 @@ function CompanyEmailResult({
           </span>
         </div>
         {expanded ? (
-          <ChevronUp className="h-4 w-4 text-[var(--sea-ink-soft)]" />
+          <CaretUp className="h-4 w-4 text-[var(--sea-ink-soft)]" />
         ) : (
-          <ChevronDown className="h-4 w-4 text-[var(--sea-ink-soft)]" />
+          <CaretDown className="h-4 w-4 text-[var(--sea-ink-soft)]" />
         )}
       </button>
 

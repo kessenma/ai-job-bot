@@ -1,26 +1,67 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
 import {
-  Briefcase, Send, MessageSquare, XCircle, AlertTriangle, Zap,
-  MapPin, ExternalLink, User, Building2,
-} from 'lucide-react'
-import { getJobs } from '#/lib/jobs.api.ts'
+  BriefcaseIcon, PaperPlaneTiltIcon, ChatCenteredDotsIcon, XCircleIcon, WarningIcon, LightningIcon,
+  CheckCircle,
+} from '@phosphor-icons/react'
+import {
+  getJobs,
+  getJobCoverLetters,
+} from '#/lib/jobs.api.ts'
+import { getCoverLetters } from '#/lib/resume.api.ts'
+import { getSavedEmails } from '#/lib/gmail.api.ts'
 import { ATS_DIFFICULTY } from '#/lib/ats-classifier.ts'
 import type { ATSPlatform, JobLead } from '#/lib/types.ts'
+import type { ScannedEmail } from '#/lib/gmail.server.ts'
 import { requireAuth } from '#/lib/auth-guard.ts'
+import { DashboardJobSheet, type CoverLetterMap } from '#/components/DashboardJobSheet.tsx'
+import { DashboardSkeleton } from '#/components/examples/skeleton/table/skeleton-table-2.tsx'
 
 export const Route = createFileRoute('/dashboard')({
   beforeLoad: requireAuth,
-  loader: () => getJobs(),
+  loader: async () => {
+    const [jobs, savedEmails, jobCoverLetters, coverLetterSamples] = await Promise.all([
+      getJobs(),
+      getSavedEmails(),
+      getJobCoverLetters(),
+      getCoverLetters(),
+    ])
+    return { jobs, savedEmails, jobCoverLetters, coverLetterSamples }
+  },
+  pendingComponent: DashboardSkeleton,
   component: Dashboard,
 })
 
 type FilterTab = 'all' | 'ready' | 'applied' | 'followup' | 'rejected' | 'expired'
 
+const statusColors: Record<string, string> = {
+  submitted: 'bg-blue-500/15 text-blue-700',
+  applied: 'bg-blue-500/15 text-blue-700',
+  rejected: 'bg-red-500/15 text-red-700',
+  interview: 'bg-purple-500/15 text-purple-700',
+  'action needed': 'bg-orange-500/15 text-orange-700',
+  'not submitted': 'bg-gray-500/15 text-gray-600',
+  expired: 'bg-gray-500/15 text-gray-600',
+}
+
+const diffColors = {
+  easy: 'bg-green-500/15 text-green-700',
+  medium: 'bg-yellow-500/15 text-yellow-700',
+  hard: 'bg-red-500/15 text-red-700',
+}
+
+
 function Dashboard() {
-  const jobs = Route.useLoaderData()
+  const { jobs, savedEmails, jobCoverLetters: initialCLMap, coverLetterSamples } = Route.useLoaderData()
   const [tab, setTab] = useState<FilterTab>('all')
   const [platformFilter, setPlatformFilter] = useState<ATSPlatform | 'all'>('all')
+  const [selectedJob, setSelectedJob] = useState<JobLead | null>(null)
+  const [clMap, setClMap] = useState<CoverLetterMap>(initialCLMap)
+
+  const emailsByCompany = new Map<string, ScannedEmail[]>()
+  for (const result of savedEmails) {
+    emailsByCompany.set(result.company.trim().toLowerCase(), result.emails)
+  }
 
   const filtered = jobs.filter((j) => {
     if (platformFilter !== 'all' && j.atsPlatform !== platformFilter) return false
@@ -86,16 +127,20 @@ function Dashboard() {
     { key: 'expired', label: 'Expired' },
   ]
 
+  const selectedEmails = selectedJob
+    ? (emailsByCompany.get(selectedJob.company.trim().toLowerCase()) ?? [])
+    : []
+
   return (
     <main className="page-wrap px-4 pb-8 pt-14">
       {/* Stats */}
       <section className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <StatCard label="Total" count={stats.total} cls="bg-blue-500/10 text-blue-700" icon={<Briefcase className="h-4 w-4 opacity-60" />} />
-        <StatCard label="Submitted" count={stats.submitted} cls="bg-green-500/10 text-green-700" icon={<Send className="h-4 w-4 opacity-60" />} />
-        <StatCard label="Interviews" count={stats.interview} cls="bg-purple-500/10 text-purple-700" icon={<MessageSquare className="h-4 w-4 opacity-60" />} />
-        <StatCard label="Rejected" count={stats.rejected} cls="bg-red-500/10 text-red-700" icon={<XCircle className="h-4 w-4 opacity-60" />} />
-        <StatCard label="Needs Action" count={stats.needsAction} cls="bg-orange-500/10 text-orange-700" icon={<AlertTriangle className="h-4 w-4 opacity-60" />} />
-        <StatCard label="Auto-Apply Ready" count={stats.canAutoApply} cls="bg-teal-500/10 text-teal-700" icon={<Zap className="h-4 w-4 opacity-60" />} />
+        <StatCard label="Total" count={stats.total} cls="bg-blue-500/10 text-blue-700" icon={<BriefcaseIcon className="h-4 w-4 opacity-60" />} />
+        <StatCard label="Submitted" count={stats.submitted} cls="bg-green-500/10 text-green-700" icon={<PaperPlaneTiltIcon className="h-4 w-4 opacity-60" />} />
+        <StatCard label="Interviews" count={stats.interview} cls="bg-purple-500/10 text-purple-700" icon={<ChatCenteredDotsIcon className="h-4 w-4 opacity-60" />} />
+        <StatCard label="Rejected" count={stats.rejected} cls="bg-red-500/10 text-red-700" icon={<XCircleIcon className="h-4 w-4 opacity-60" />} />
+        <StatCard label="Needs Action" count={stats.needsAction} cls="bg-orange-500/10 text-orange-700" icon={<WarningIcon className="h-4 w-4 opacity-60" />} />
+        <StatCard label="Auto-Apply Ready" count={stats.canAutoApply} cls="bg-teal-500/10 text-teal-700" icon={<LightningIcon className="h-4 w-4 opacity-60" />} />
       </section>
 
       {/* Tabs */}
@@ -135,17 +180,88 @@ function Dashboard() {
         </select>
       </div>
 
-      {/* Job list */}
-      <section className="space-y-2">
-        {filtered.map((job, i) => (
-          <JobRow key={`${job.company}-${job.role}-${i}`} job={job} />
-        ))}
-        {filtered.length === 0 && (
-          <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-8 text-center text-[var(--sea-ink-soft)]">
-            No jobs match this filter.
-          </div>
-        )}
-      </section>
+      {/* Job table */}
+      <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] overflow-hidden">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-[var(--line)] bg-[var(--surface-strong)]">
+              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--sea-ink-soft)] uppercase tracking-wider">Company</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--sea-ink-soft)] uppercase tracking-wider">Role</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--sea-ink-soft)] uppercase tracking-wider hidden sm:table-cell">Location</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--sea-ink-soft)] uppercase tracking-wider">ATS</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--sea-ink-soft)] uppercase tracking-wider">Status</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-[var(--sea-ink-soft)] uppercase tracking-wider hidden md:table-cell">Cover Letter</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length > 0 ? (
+              filtered.map((job) => {
+                const difficulty = ATS_DIFFICULTY[job.atsPlatform]
+                const statusKey = Object.keys(statusColors).find((k) =>
+                  job.applicationStatus.toLowerCase().includes(k),
+                )
+                const cl = clMap[job.jobUrl]
+                return (
+                  <tr
+                    key={job.jobUrl}
+                    className="border-b border-[var(--line)] cursor-pointer transition-colors hover:bg-[var(--surface-strong)]"
+                    onClick={() => setSelectedJob(job)}
+                  >
+                    <td className="px-4 py-3 font-semibold text-[var(--sea-ink)]">{job.company}</td>
+                    <td className="px-4 py-3 text-sm text-[var(--sea-ink-soft)] max-w-[200px] truncate" title={job.role}>{job.role}</td>
+                    <td className="px-4 py-3 text-sm text-[var(--sea-ink-soft)] max-w-[150px] truncate hidden sm:table-cell" title={job.location}>{job.location || '—'}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1.5">
+                        <span className="rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-[var(--surface)] text-[var(--sea-ink-soft)]">{job.atsPlatform}</span>
+                        <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${diffColors[difficulty]}`}>{difficulty}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3">
+                      {statusKey ? (
+                        <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[statusKey]}`}>{job.applicationStatus}</span>
+                      ) : (
+                        <span className="text-sm text-[var(--sea-ink-soft)]">{job.applicationStatus}</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 hidden md:table-cell">
+                      {cl ? (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-green-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-green-700">
+                          <CheckCircle className="h-3 w-3" /> Attached
+                        </span>
+                      ) : (
+                        <span className="text-xs text-[var(--sea-ink-soft)]">—</span>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })
+            ) : (
+              <tr>
+                <td className="h-24 text-center text-[var(--sea-ink-soft)]" colSpan={6}>
+                  No jobs match this filter.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Job detail sheet */}
+      <DashboardJobSheet
+        selectedJob={selectedJob}
+        onClose={() => setSelectedJob(null)}
+        emails={selectedEmails}
+        coverLetter={selectedJob ? clMap[selectedJob.jobUrl] : undefined}
+        coverLetterSamples={coverLetterSamples}
+        onCoverLetterChange={(jobUrl: string, cl: CoverLetterMap[string] | null) => {
+          setClMap((prev) => {
+            if (cl) return { ...prev, [jobUrl]: cl }
+            const next = { ...prev }
+            delete next[jobUrl]
+            return next
+          })
+        }}
+      />
     </main>
   )
 }
@@ -162,77 +278,3 @@ function StatCard({ label, count, cls, icon }: { label: string; count: number; c
   )
 }
 
-function JobRow({ job }: { job: JobLead }) {
-  const difficulty = ATS_DIFFICULTY[job.atsPlatform]
-  const diffColors = {
-    easy: 'bg-green-500/15 text-green-700',
-    medium: 'bg-yellow-500/15 text-yellow-700',
-    hard: 'bg-red-500/15 text-red-700',
-  }
-  const statusColors: Record<string, string> = {
-    submitted: 'bg-blue-500/15 text-blue-700',
-    applied: 'bg-blue-500/15 text-blue-700',
-    rejected: 'bg-red-500/15 text-red-700',
-    interview: 'bg-purple-500/15 text-purple-700',
-    'action needed': 'bg-orange-500/15 text-orange-700',
-    'not submitted': 'bg-gray-500/15 text-gray-600',
-    expired: 'bg-gray-500/15 text-gray-600',
-  }
-
-  const statusKey = Object.keys(statusColors).find((k) =>
-    job.applicationStatus.toLowerCase().includes(k),
-  )
-
-  const hasEmail =
-    job.recruiterEmail &&
-    job.recruiterEmail !== 'N/A' &&
-    !job.recruiterEmail.includes('Unavailable') &&
-    job.recruiterEmail !== 'Expired'
-
-  return (
-    <div className="island-shell flex flex-col gap-2 rounded-xl p-4 sm:flex-row sm:items-center sm:justify-between">
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <Building2 className="h-3.5 w-3.5 shrink-0 text-[var(--sea-ink-soft)]" />
-          <span className="font-semibold text-[var(--sea-ink)]">{job.company}</span>
-          <span className="rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-[var(--surface)] text-[var(--sea-ink-soft)]">
-            {job.atsPlatform}
-          </span>
-          <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${diffColors[difficulty]}`}>
-            {difficulty}
-          </span>
-        </div>
-        <div className="text-sm text-[var(--sea-ink-soft)]">{job.role}</div>
-        {job.location && (
-          <div className="flex items-center gap-1 text-xs text-[var(--sea-ink-soft)] opacity-70">
-            <MapPin className="h-3 w-3" />
-            {job.location}
-          </div>
-        )}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        {statusKey && (
-          <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[statusKey]}`}>
-            {job.applicationStatus}
-          </span>
-        )}
-        {hasEmail && (
-          <span className="inline-flex items-center gap-1 rounded-full bg-teal-500/15 px-2.5 py-0.5 text-xs font-medium text-teal-700" title={job.recruiterEmail}>
-            <User className="h-3 w-3" />
-            Contact
-          </span>
-        )}
-        <a
-          href={job.jobUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 rounded-full border border-[var(--line)] px-3 py-1 text-xs font-medium text-[var(--lagoon-deep)] no-underline hover:bg-[var(--surface-strong)]"
-        >
-          <ExternalLink className="h-3 w-3" />
-          View Job
-        </a>
-      </div>
-    </div>
-  )
-}

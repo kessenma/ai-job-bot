@@ -1,0 +1,32 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: runner
+      args:
+        NODE_ENV: production
+    env_file:
+      - ./.env
+    environment:
+      PORT: 3000
+      HOST: "0.0.0.0"
+      NODE_ENV: production
+      DATA_DIR: /app/data
+      LLM_SERVICE_URL: http://llm:8083
+      PLAYWRIGHT_SERVICE_URL: http://playwright:8084
+    ports:
+      - "3000:3000"
+    volumes:
+      - app-data:/app/data
+    restart: unless-stopped
+    networks:
+      - coolify
+
+volumes:
+  app-data:
+
+networks:
+  coolify:
+    name: coolify
+    external: true

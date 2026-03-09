@@ -1,9 +1,9 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useState, useCallback } from 'react'
 import {
-  BookOpen, ChevronDown, ChevronUp, ExternalLink, Copy, CheckCircle,
-  Table, Mail, Key, Link2, Unlink, Loader2,
-} from 'lucide-react'
+  BookOpen, CaretDown, CaretUp, ArrowSquareOut, Copy, CheckCircle,
+  Table, EnvelopeSimple, Key, Link as LinkIcon, LinkBreak, CircleNotch,
+} from '@phosphor-icons/react'
 import { getGmailStatus } from '#/lib/gmail.api.ts'
 import { getSheetsStatus, setSheetsUrl, removeSheetsUrl } from '#/lib/sheets.api.ts'
 import { requireAuth } from '#/lib/auth-guard.ts'
@@ -204,7 +204,7 @@ function Setup() {
       {/* Section 2: Gmail Connection */}
       <div className="mt-8">
         <SetupSection
-          icon={<Mail className="h-5 w-5 text-[var(--lagoon)]" />}
+          icon={<EnvelopeSimple className="h-5 w-5 text-[var(--lagoon)]" />}
           title="2. Connect Gmail"
           subtitle="Add yourself as a test user and connect your Gmail account for email scanning."
           status={gmailStatus.connected ? 'done' : gmailStatus.configured ? 'ready' : 'pending'}
@@ -257,7 +257,28 @@ function SetupSection({
   statusText: string
   steps: Step[]
 }) {
-  const [expandedStep, setExpandedStep] = useState<number | null>(null)
+  const [expandedSteps, setExpandedSteps] = useState<Set<number>>(new Set())
+  const allExpanded = expandedSteps.size === steps.length
+
+  function toggleStep(i: number) {
+    setExpandedSteps(prev => {
+      const next = new Set(prev)
+      if (next.has(i)) {
+        next.delete(i)
+      } else {
+        next.add(i)
+      }
+      return next
+    })
+  }
+
+  function toggleAll() {
+    if (allExpanded) {
+      setExpandedSteps(new Set())
+    } else {
+      setExpandedSteps(new Set(steps.map((_, i) => i)))
+    }
+  }
 
   const statusColors = {
     done: 'bg-green-500/10 text-green-700',
@@ -275,9 +296,17 @@ function SetupSection({
             <p className="text-sm text-[var(--sea-ink-soft)]">{subtitle}</p>
           </div>
         </div>
-        <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${statusColors[status]}`}>
-          {statusText}
-        </span>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            onClick={toggleAll}
+            className="rounded-full border border-[var(--line)] px-3 py-1 text-xs font-medium text-[var(--lagoon)] transition hover:bg-[var(--surface)]"
+          >
+            {allExpanded ? 'Collapse All' : 'Expand All'}
+          </button>
+          <span className={`rounded-full px-3 py-1 text-xs font-medium ${statusColors[status]}`}>
+            {statusText}
+          </span>
+        </div>
       </div>
       <div className="space-y-2">
         {steps.map((step, i) => (
@@ -288,8 +317,8 @@ function SetupSection({
             description={step.description}
             image={step.image}
             link={step.link}
-            expanded={expandedStep === i}
-            onToggle={() => setExpandedStep(expandedStep === i ? null : i)}
+            expanded={expandedSteps.has(i)}
+            onToggle={() => toggleStep(i)}
           />
         ))}
       </div>
@@ -325,9 +354,9 @@ function StepCard({
         </span>
         <span className="flex-1 font-semibold text-[var(--sea-ink)]">{title}</span>
         {expanded ? (
-          <ChevronUp className="h-4 w-4 text-[var(--sea-ink-soft)]" />
+          <CaretUp className="h-4 w-4 text-[var(--sea-ink-soft)]" />
         ) : (
-          <ChevronDown className="h-4 w-4 text-[var(--sea-ink-soft)]" />
+          <CaretDown className="h-4 w-4 text-[var(--sea-ink-soft)]" />
         )}
       </button>
 
@@ -341,7 +370,7 @@ function StepCard({
               rel="noopener noreferrer"
               className="mb-3 inline-flex items-center gap-1.5 rounded-full bg-[var(--lagoon)] px-4 py-1.5 text-xs font-medium text-white no-underline transition hover:opacity-90"
             >
-              <ExternalLink className="h-3 w-3" />
+              <ArrowSquareOut className="h-3 w-3" />
               Open in Google Cloud
             </a>
           )}
@@ -396,7 +425,7 @@ function SheetUrlConfig({
   return (
     <section className="island-shell rounded-2xl p-6">
       <h3 className="mb-1 flex items-center gap-2 text-base font-semibold text-[var(--sea-ink)]">
-        <Link2 className="h-4 w-4 text-[var(--lagoon)]" />
+        <LinkIcon className="h-4 w-4 text-[var(--lagoon)]" />
         Google Sheet URL
       </h3>
       <p className="mb-4 text-sm text-[var(--sea-ink-soft)]">
@@ -415,7 +444,7 @@ function SheetUrlConfig({
             disabled={saving}
             className="flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-medium text-red-600 transition hover:bg-red-100"
           >
-            <Unlink className="h-3.5 w-3.5" />
+            <LinkBreak className="h-3.5 w-3.5" />
             Remove
           </button>
         </div>
@@ -434,7 +463,7 @@ function SheetUrlConfig({
               disabled={saving || !url.trim()}
               className="flex items-center gap-1.5 rounded-lg bg-[var(--lagoon)] px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
             >
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
+              {saving ? <CircleNotch className="h-4 w-4 animate-spin" /> : <LinkIcon className="h-4 w-4" />}
               Connect
             </button>
           </div>

@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
-import { Loader2, CheckCircle, XCircle } from 'lucide-react'
+import { CircleNotch, CheckCircle, XCircle } from '@phosphor-icons/react'
 import { exchangeGmailCode } from '#/lib/gmail.api.ts'
 
 export const Route = createFileRoute('/auth/callback')({
@@ -38,7 +38,7 @@ function AuthCallback() {
       <div className="island-shell rounded-2xl p-8 text-center">
         {status === 'loading' && (
           <>
-            <Loader2 className="mx-auto h-10 w-10 animate-spin text-[var(--lagoon)]" />
+            <CircleNotch className="mx-auto h-10 w-10 animate-spin text-[var(--lagoon)]" />
             <p className="mt-4 text-[var(--sea-ink)]">Connecting your Gmail account...</p>
           </>
         )}

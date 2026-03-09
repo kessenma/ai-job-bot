@@ -1,0 +1,39 @@
+services:
+  llm:
+    build:
+      context: ./apps/llm
+      dockerfile: Dockerfile
+    deploy:
+      resources:
+        limits:
+          memory: 10G
+        reservations:
+          memory: 4G
+    ports:
+      - "8083:8083"
+    environment:
+      PORT: 8083
+      MODEL_DIR: /app/models
+      DEFAULT_MODEL: ""
+      N_CTX: 4096
+      N_THREADS: 8
+      N_GPU_LAYERS: 0
+    volumes:
+      - llm-models:/app/models
+    restart: on-failure:3
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/health"]
+      interval: 30s
+      timeout: 15s
+      start_period: 30s
+      retries: 5
+    networks:
+      - coolify
+
+volumes:
+  llm-models:
+
+networks:
+  coolify:
+    name: coolify
+    external: true

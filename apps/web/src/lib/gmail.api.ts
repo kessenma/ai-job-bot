@@ -7,28 +7,33 @@ import {
   scanEmailsForCompany,
   disconnectGmail,
   handleAuthCallback,
+  sendEmail,
 } from './gmail.server.ts'
 import { saveScannedEmails, loadSavedEmails, getSavedEmailCount } from './emails.server.ts'
 import type { ScanResult, EmailClassification } from './gmail.server.ts'
 
 export const getAuthState = createServerFn({ method: 'GET' }).handler(() => {
-  const configured = isConfigured()
-  const authenticated = configured && isAuthenticated()
-  return {
-    configured,
-    authenticated,
-    authUrl: configured && !authenticated ? getAuthUrl() : null,
+  try {
+    const configured = isConfigured()
+    const authenticated = configured && isAuthenticated()
+    return {
+      configured,
+      authenticated,
+      authUrl: configured && !authenticated ? getAuthUrl() : null,
+    }
+  } catch {
+    return { configured: false, authenticated: false, authUrl: null }
   }
 })
 
-export const getGmailStatus = createServerFn({ method: 'GET' }).handler(() => {
+export const getGmailStatus = createServerFn({ method: 'GET' }).handler(async () => {
   const configured = isConfigured()
   const connected = configured && isAuthenticated()
   return {
     configured,
     connected,
     authUrl: configured && !connected ? getAuthUrl() : null,
-    savedEmailCount: getSavedEmailCount(),
+    savedEmailCount: await getSavedEmailCount(),
   }
 })
 
@@ -43,7 +48,7 @@ export const scanEmails = createServerFn({ method: 'POST' })
   .inputValidator((data: { companies: string[] }) => data)
   .handler(async ({ data }): Promise<ScanResult[]> => {
     const results = await scanAllCompanies(data.companies)
-    saveScannedEmails(results)
+    await saveScannedEmails(results)
     return results
   })
 
@@ -61,7 +66,7 @@ export const scanOneCompany = createServerFn({ method: 'POST' })
     if (interviews.length > 0) suggestedStatus = 'interview'
 
     const result: ScanResult = { company: data.company, emails, suggestedStatus }
-    saveScannedEmails([result])
+    await saveScannedEmails([result])
     return result
   })
 
@@ -73,3 +78,10 @@ export const disconnectGmailAccount = createServerFn({ method: 'POST' }).handler
   disconnectGmail()
   return { success: true }
 })
+
+export const sendGmailEmail = createServerFn({ method: 'POST' })
+  .inputValidator((data: { to: string; subject: string; body: string }) => data)
+  .handler(async ({ data }) => {
+    const result = await sendEmail(data.to, data.subject, data.body)
+    return { success: true, messageId: result.messageId }
+  })

@@ -1,4 +1,4 @@
-import { Upload } from 'lucide-react'
+import { UploadSimple } from '@phosphor-icons/react'
 
 export function DropZone({
   accept,
@@ -48,7 +48,7 @@ export function DropZone({
           : 'border-[var(--line)] bg-[var(--surface)] hover:border-[var(--lagoon-deep)] hover:bg-[var(--surface-strong)]'
       }`}
     >
-      <Upload
+      <UploadSimple
         className={`${compact ? 'h-6 w-6' : 'h-10 w-10'} ${
           dragOver ? 'text-[var(--lagoon)]' : 'text-[var(--sea-ink-soft)]'
         }`}

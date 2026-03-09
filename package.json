@@ -5,13 +5,26 @@
     "build": ". ~/.nvm/nvm.sh && nvm use && pnpm --filter web build",
     "test": ". ~/.nvm/nvm.sh && nvm use && pnpm --filter web test",
     "kill:web": "lsof -ti:3000 | xargs kill -9 2>/dev/null || echo 'Nothing running on port 3000'",
-    "rebuild": ". ~/.nvm/nvm.sh && nvm use && pnpm rebuild better-sqlite3"
+    "rebuild": "echo 'No native modules to rebuild'",
+    "docker:dev": "node scripts/docker-dev.mjs",
+    "docker:dev:detach": "node scripts/docker-dev.mjs --detach",
+    "docker:down": "node scripts/docker-dev.mjs --down"
   },
+  "trustedDependencies": [
+    "esbuild",
+    "lightningcss"
+  ],
   "pnpm": {
     "onlyBuiltDependencies": [
-      "better-sqlite3",
       "esbuild",
       "lightningcss"
     ]
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "dependencies": {
+    "postgres": "^3.4.8"
   }
 }

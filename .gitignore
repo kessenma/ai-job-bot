@@ -13,6 +13,9 @@ uploads/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+*.db
+*.db-wal
+*.db-shm
 
 # OS
 .DS_Store
@@ -32,6 +35,16 @@ Thumbs.db
 
 # Duplicate assets
 apps/web/assets/
+
+# MCP config
+.mcp.json
+apps/web/.mcp.json
+
+# Lock files (using pnpm-lock.yaml)
+bun.lock
+
+# Misc
+docker-logs.md
 
 # Token files
 .gmail-token.json

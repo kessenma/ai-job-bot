@@ -1,60 +1,95 @@
-import { Link, useRouterState } from '@tanstack/react-router'
-import { LayoutDashboard, Bot, Mail, Settings, Inbox, BookOpen, Table } from 'lucide-react'
-import ThemeToggle from './ThemeToggle'
+import { useNavigate, useRouterState } from '@tanstack/react-router'
+import { SquaresFour, Robot, EnvelopeSimple, GearSix, Tray, BookOpen, Table } from '@phosphor-icons/react'
+// @ts-expect-error -- JSX component without type declarations
+import PillNav from './PillNav'
+// @ts-expect-error -- JSX component without type declarations
+import Dock from './Dock'
 
 export default function Header() {
+  const navigate = useNavigate()
   const routerState = useRouterState()
-  const rootData = routerState.matches[0]?.loaderData as { auth?: { authenticated: boolean } } | undefined
-  const authenticated = rootData?.auth?.authenticated ?? false
+  const rootContext = routerState.matches[0]?.context as { auth?: { authenticated: boolean; authUrl?: string | null } } | undefined
+  const authenticated = rootContext?.auth?.authenticated ?? false
+  const authUrl = rootContext?.auth?.authUrl
+  const currentPath = routerState.location.pathname
+
+  if (authenticated) {
+    return <AuthenticatedNav navigate={navigate} />
+  }
+
+  return <UnauthenticatedNav authUrl={authUrl} currentPath={currentPath} />
+}
+
+function UnauthenticatedNav({ authUrl, currentPath }: { authUrl?: string | null; currentPath: string }) {
+  return (
+    <div className="fixed top-0 z-50 w-full flex justify-center">
+      <PillNav
+        logo="/favicon.ico"
+        logoAlt="Job App Bot"
+        items={[
+          { href: '/', label: 'Home' },
+          { href: '/about', label: 'About' },
+          ...(authUrl ? [{ href: authUrl, label: 'Sign In' }] : []),
+        ]}
+        activeHref={currentPath}
+        baseColor="var(--header-bg, #1a1a2e)"
+        pillColor="var(--lagoon, #56c6be)"
+        hoveredPillTextColor="#fff"
+        pillTextColor="#fff"
+      />
+    </div>
+  )
+}
+
+function AuthenticatedNav({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
+  const dockItems = [
+    {
+      icon: <SquaresFour className="h-6 w-6 text-[var(--lagoon)]" />,
+      label: 'Dashboard',
+      onClick: () => navigate({ to: '/dashboard' }),
+    },
+    {
+      icon: <Robot className="h-6 w-6 text-[var(--lagoon)]" />,
+      label: 'Auto Apply',
+      onClick: () => navigate({ to: '/auto-apply' }),
+    },
+    {
+      icon: <EnvelopeSimple className="h-6 w-6 text-[var(--lagoon)]" />,
+      label: 'Follow Up',
+      onClick: () => navigate({ to: '/follow-up' }),
+    },
+    {
+      icon: <Table className="h-6 w-6 text-[var(--lagoon)]" />,
+      label: 'Sheets',
+      onClick: () => navigate({ to: '/sheets' }),
+    },
+    {
+      icon: <Tray className="h-6 w-6 text-[var(--lagoon)]" />,
+      label: 'Email Scan',
+      onClick: () => navigate({ to: '/email-scan' }),
+    },
+    {
+      icon: <BookOpen className="h-6 w-6 text-[var(--lagoon)]" />,
+      label: 'Setup',
+      onClick: () => navigate({ to: '/setup' }),
+    },
+    {
+      icon: <GearSix className="h-6 w-6 text-[var(--lagoon)]" />,
+      label: 'Settings',
+      onClick: () => navigate({ to: '/settings' }),
+    },
+  ]
 
   return (
-    <header className="fixed top-0 z-50 w-full border-b border-[var(--line)] bg-[var(--header-bg)] backdrop-blur-lg">
-      <nav className="page-wrap flex items-center gap-4 px-4 py-3">
-        <Link
-          to={authenticated ? '/dashboard' : '/'}
-          className="inline-flex items-center gap-2 rounded-full border border-[var(--chip-line)] bg-[var(--chip-bg)] px-3 py-1.5 text-sm font-semibold text-[var(--sea-ink)] no-underline shadow-sm"
-        >
-          <span className="h-2 w-2 rounded-full bg-[linear-gradient(90deg,#56c6be,#7ed3bf)]" />
-          Job App Bot
-        </Link>
-
-        {authenticated && (
-          <div className="flex items-center gap-4 text-sm font-semibold">
-            <Link to="/dashboard" className="nav-link inline-flex items-center gap-1.5" activeProps={{ className: 'nav-link is-active' }}>
-              <LayoutDashboard className="h-3.5 w-3.5" />
-              Dashboard
-            </Link>
-            <Link to="/auto-apply" className="nav-link inline-flex items-center gap-1.5" activeProps={{ className: 'nav-link is-active' }}>
-              <Bot className="h-3.5 w-3.5" />
-              Auto Apply
-            </Link>
-            <Link to="/follow-up" className="nav-link inline-flex items-center gap-1.5" activeProps={{ className: 'nav-link is-active' }}>
-              <Mail className="h-3.5 w-3.5" />
-              Follow Up
-            </Link>
-            <Link to="/sheets" className="nav-link inline-flex items-center gap-1.5" activeProps={{ className: 'nav-link is-active' }}>
-              <Table className="h-3.5 w-3.5" />
-              Sheets
-            </Link>
-            <Link to="/email-scan" className="nav-link inline-flex items-center gap-1.5" activeProps={{ className: 'nav-link is-active' }}>
-              <Inbox className="h-3.5 w-3.5" />
-              Email Scan
-            </Link>
-            <Link to="/setup" className="nav-link inline-flex items-center gap-1.5" activeProps={{ className: 'nav-link is-active' }}>
-              <BookOpen className="h-3.5 w-3.5" />
-              Setup
-            </Link>
-            <Link to="/settings" className="nav-link inline-flex items-center gap-1.5" activeProps={{ className: 'nav-link is-active' }}>
-              <Settings className="h-3.5 w-3.5" />
-              Settings
-            </Link>
-          </div>
-        )}
-
-        <div className="ml-auto">
-          <ThemeToggle />
-        </div>
-      </nav>
-    </header>
+    <div className="fixed bottom-0 z-50 w-full flex justify-center pointer-events-none">
+      <div className="pointer-events-auto">
+        <Dock
+          items={dockItems}
+          panelHeight={68}
+          baseItemSize={50}
+          magnification={70}
+        />
+      </div>
+    </div>
   )
 }

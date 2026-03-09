@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3'
+import { Database } from 'bun:sqlite'
 import { resolve } from 'node:path'
 import { mkdirSync } from 'node:fs'
 
@@ -9,7 +9,7 @@ const dbPath = resolve(dataDir, 'job-app-bot.db')
 
 export function runMigrations() {
   const sqlite = new Database(dbPath)
-  sqlite.pragma('journal_mode = WAL')
+  sqlite.exec('PRAGMA journal_mode = WAL')
 
   sqlite.exec(`
     CREATE TABLE IF NOT EXISTS jobs (
@@ -58,10 +58,72 @@ export function runMigrations() {
       synced_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS uploads (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      category TEXT NOT NULL,
+      name TEXT NOT NULL UNIQUE,
+      original_name TEXT NOT NULL,
+      extracted_text TEXT,
+      uploaded_at TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_jobs_company ON jobs(company);
     CREATE INDEX IF NOT EXISTS idx_jobs_application_status ON jobs(application_status);
     CREATE INDEX IF NOT EXISTS idx_scanned_emails_company ON scanned_emails(company);
     CREATE INDEX IF NOT EXISTS idx_scanned_emails_classification ON scanned_emails(classification);
+    CREATE INDEX IF NOT EXISTS idx_uploads_category ON uploads(category);
+
+    CREATE TABLE IF NOT EXISTS screenshots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      job_id INTEGER REFERENCES jobs(id),
+      url TEXT NOT NULL,
+      image TEXT NOT NULL,
+      title TEXT,
+      status TEXT,
+      has_captcha INTEGER DEFAULT 0,
+      ats_platform TEXT,
+      actions TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS document_embeddings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      upload_name TEXT NOT NULL UNIQUE,
+      embedding TEXT NOT NULL,
+      model TEXT NOT NULL DEFAULT 'all-MiniLM-L6-v2',
+      embedded_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS job_cover_letters (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      job_url TEXT NOT NULL UNIQUE,
+      upload_name TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_job_cover_letters_job_url ON job_cover_letters(job_url);
+
+    CREATE TABLE IF NOT EXISTS apply_profile (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      first_name TEXT NOT NULL,
+      last_name TEXT NOT NULL,
+      email TEXT NOT NULL,
+      phone_country_code TEXT,
+      phone TEXT,
+      linkedin_url TEXT,
+      city TEXT,
+      state TEXT,
+      country TEXT,
+      zip_code TEXT,
+      salary_expectations TEXT,
+      availability TEXT,
+      earliest_start_date TEXT,
+      work_visa_status TEXT,
+      nationality TEXT,
+      gender TEXT,
+      referral_source TEXT,
+      updated_at TEXT NOT NULL
+    );
   `)
 
   sqlite.close()

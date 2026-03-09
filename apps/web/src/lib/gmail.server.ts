@@ -1,96 +1,13 @@
 import { google } from 'googleapis'
 import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { classifyEmail, cleanCompanyName, emailMatchesCompany } from '@job-app-bot/shared/email-classifier'
+import type { EmailClassification } from '@job-app-bot/shared/email-classifier'
 
-const TOKEN_PATH = resolve(process.cwd(), 'uploads', '.gmail-token.json')
+const DATA_DIR = process.env.DATA_DIR || resolve(process.cwd(), 'data')
+const TOKEN_PATH = resolve(DATA_DIR, 'uploads', '.gmail-token.json')
 
-// Keywords that signal a rejection email
-const REJECTION_KEYWORDS = [
-  'unfortunately',
-  'regret to inform',
-  'regret',
-  'will not be moving forward',
-  'won\'t be moving forward',
-  'aren\'t moving forward',
-  'are not moving forward',
-  'not be proceeding',
-  'decided not to proceed',
-  'not to move forward',
-  'other candidates',
-  'decided to go with',
-  'move forward with other',
-  'pursuing other candidates',
-  'not the right fit',
-  'not a match',
-  'unable to offer',
-  'will not be offering',
-  'position has been filled',
-  'after careful consideration',
-  'we have decided to',
-  'not selected',
-  'did not select',
-  'we will not',
-  'we won\'t',
-  'your application was not',
-  'your application has not been',
-  'thank you for your interest, however',
-  'at this time we',
-  'not able to move',
-]
-
-// Keywords that signal an interview/positive response
-const INTERVIEW_KEYWORDS = [
-  'schedule an interview',
-  'schedule a call',
-  'invite you to interview',
-  'like to invite you',
-  'would love to chat',
-  'meet with our team',
-  'technical interview',
-  'coding challenge',
-  'take-home assignment',
-  'phone screen',
-  'video interview',
-  'meet the team',
-  'would like to discuss your',
-  'move forward with your',
-  'moving forward with you',
-  'pleased to inform',
-  'happy to inform',
-  'congratulations',
-  'offer letter',
-  'we\'d like to proceed',
-  'availability for an interview',
-  'book a time',
-  'calendly',
-]
-
-// Keywords that signal an application confirmation/acknowledgment
-const APPLICATION_KEYWORDS = [
-  'thank you for applying',
-  'thanks for applying',
-  'thank you for your application',
-  'thanks for your application',
-  'application received',
-  'application has been received',
-  'application was received',
-  'we have received your application',
-  'we received your application',
-  'application submitted',
-  'application has been submitted',
-  'successfully applied',
-  'successfully submitted',
-  'your application for',
-  'confirming your application',
-  'confirm your application',
-  'application confirmation',
-  'thank you for your interest in',
-  'thanks for your interest in',
-  'thank you for submitting',
-  'thanks for submitting',
-]
-
-export type EmailClassification = 'rejection' | 'interview' | 'applied' | 'other'
+export type { EmailClassification }
 
 export interface ScannedEmail {
   from: string
@@ -131,6 +48,7 @@ export function getAuthUrl(): string {
     prompt: 'consent',
     scope: [
       'https://www.googleapis.com/auth/gmail.readonly',
+      'https://www.googleapis.com/auth/gmail.send',
       'https://www.googleapis.com/auth/spreadsheets.readonly',
     ],
   })
@@ -161,70 +79,6 @@ export function getAuthenticatedClient() {
   })
 
   return oauth2Client
-}
-
-function classifyEmail(subject: string, snippet: string, body?: string): {
-  classification: EmailClassification
-  matchedKeywords: string[]
-} {
-  const text = `${subject} ${snippet} ${body ?? ''}`.toLowerCase()
-  const matchedRejection: string[] = []
-  const matchedInterview: string[] = []
-  const matchedApplied: string[] = []
-
-  for (const kw of REJECTION_KEYWORDS) {
-    if (text.includes(kw)) matchedRejection.push(kw)
-  }
-  for (const kw of INTERVIEW_KEYWORDS) {
-    if (text.includes(kw)) matchedInterview.push(kw)
-  }
-  for (const kw of APPLICATION_KEYWORDS) {
-    if (text.includes(kw)) matchedApplied.push(kw)
-  }
-
-  // Priority: rejection > interview > applied > other
-  // Rejection keywords are strongest signal
-  if (matchedRejection.length > 0 && matchedRejection.length >= matchedInterview.length) {
-    return { classification: 'rejection', matchedKeywords: matchedRejection }
-  }
-  // If both interview and applied match, check if it's really just an
-  // application confirmation that happens to contain generic words like
-  // "next steps" or "assessment". Applied keywords are more specific,
-  // so if applied matches, prefer it unless there are strong interview signals.
-  if (matchedInterview.length > 0 && matchedApplied.length === 0) {
-    return { classification: 'interview', matchedKeywords: matchedInterview }
-  }
-  if (matchedApplied.length > 0) {
-    // If there are also interview keywords but more applied keywords,
-    // it's likely an application confirmation mentioning generic terms
-    if (matchedInterview.length > matchedApplied.length) {
-      return { classification: 'interview', matchedKeywords: matchedInterview }
-    }
-    return { classification: 'applied', matchedKeywords: matchedApplied }
-  }
-  return { classification: 'other', matchedKeywords: [] }
-}
-
-// Common legal suffixes that add noise to Gmail search
-const COMPANY_SUFFIXES = /\b(gmbh|inc\.?|llc|ltd\.?|ag|se|co\.?|corp\.?|plc|s\.?a\.?|b\.?v\.?|n\.?v\.?|pty|e\.?v\.?|kg|ohg|ug)\b/gi
-
-function cleanCompanyName(name: string): string {
-  return name.replace(COMPANY_SUFFIXES, '').replace(/[.,]+$/, '').trim()
-}
-
-function emailMatchesCompany(from: string, subject: string, snippet: string, companyName: string): boolean {
-  const cleaned = cleanCompanyName(companyName).toLowerCase()
-  const text = `${from} ${subject} ${snippet}`.toLowerCase()
-
-  // Check if the cleaned company name appears in the email metadata
-  // Use word-boundary-aware matching for short names
-  if (cleaned.length <= 3) {
-    // Very short names need exact word match
-    const regex = new RegExp(`\\b${cleaned.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i')
-    return regex.test(text)
-  }
-
-  return text.includes(cleaned)
 }
 
 export async function scanEmailsForCompany(companyName: string): Promise<ScannedEmail[]> {
@@ -306,6 +160,28 @@ export async function scanAllCompanies(companies: string[]): Promise<ScanResult[
   }
 
   return results
+}
+
+export async function sendEmail(to: string, subject: string, body: string): Promise<{ messageId: string }> {
+  const auth = getAuthenticatedClient()
+  const gmail = google.gmail({ version: 'v1', auth })
+
+  const message = [
+    `To: ${to}`,
+    `Subject: ${subject}`,
+    'Content-Type: text/plain; charset=utf-8',
+    '',
+    body,
+  ].join('\r\n')
+
+  const raw = Buffer.from(message).toString('base64url')
+
+  const res = await gmail.users.messages.send({
+    userId: 'me',
+    requestBody: { raw },
+  })
+
+  return { messageId: res.data.id! }
 }
 
 export function disconnectGmail(): void {

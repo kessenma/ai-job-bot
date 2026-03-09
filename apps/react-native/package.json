@@ -1,0 +1,49 @@
+{
+  "name": "@job-app-bot/react-native",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "android": "react-native run-android",
+    "ios": "react-native run-ios",
+    "macos": "react-native run-macos",
+    "macos-no-packager": "react-native run-macos --no-packager",
+    "start": "react-native start",
+    "start-reset": "rm -rf \"$HOME/Library/Developer/Xcode/DerivedData/JobAppBot-\"* 2>/dev/null; defaults write org.reactjs.native.JobAppBot RCT_jsLocation localhost 2>/dev/null; react-native start --reset-cache",
+    "metro-kill": "lsof -ti:8081 | xargs kill -9 2>/dev/null; echo 'Metro killed'",
+    "postinstall": "cd node_modules && ln -sf ../../../node_modules/react-native react-native 2>/dev/null; ln -sf ../../../node_modules/react-native-macos react-native-macos 2>/dev/null; echo 'Symlinks created'",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@job-app-bot/shared": "workspace:*",
+    "@react-navigation/bottom-tabs": "^7.3.0",
+    "@react-navigation/native": "^7.1.0",
+    "@react-navigation/stack": "^7.6.0",
+    "phosphor-react-native": "^3.0.3",
+    "react": "19.1.4",
+    "react-native": "0.81.6",
+    "react-native-gesture-handler": "^2.24.0",
+    "react-native-macos": "^0.81.3",
+    "react-native-reanimated": "^4.2.2",
+    "react-native-safe-area-context": "^5.5.2",
+    "react-native-svg": "^15.15.3",
+    "react-native-worklets": "^0.7.4"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@babel/preset-env": "^7.25.3",
+    "@babel/runtime": "^7.25.0",
+    "@react-native-community/cli": "20.0.0",
+    "@react-native-community/cli-platform-android": "20.0.0",
+    "@react-native-community/cli-platform-ios": "20.0.0",
+    "@react-native/babel-preset": "0.81.6",
+    "@react-native/metro-config": "0.81.6",
+    "@react-native/typescript-config": "0.81.6",
+    "@types/jest": "^29.5.13",
+    "@types/react": "^19.1.4",
+    "jest": "^29.6.3",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

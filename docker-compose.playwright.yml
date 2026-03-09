@@ -1,0 +1,25 @@
+services:
+  playwright:
+    build:
+      context: ./apps/playwright
+      dockerfile: Dockerfile
+    ports:
+      - "8084:8084"
+    env_file:
+      - ./.env
+    environment:
+      PORT: 8084
+    restart: on-failure:3
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8084/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    networks:
+      - coolify
+
+networks:
+  coolify:
+    name: coolify
+    external: true

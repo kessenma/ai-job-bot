@@ -1,7 +1,6 @@
-import { HeadContent, Scripts, createRootRoute, Outlet } from '@tanstack/react-router'
+import { HeadContent, Scripts, Outlet, createRootRoute } from '@tanstack/react-router'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
-import Footer from '../components/Footer'
 import Header from '../components/Header'
 import { getAuthState } from '#/lib/gmail.api.ts'
 
@@ -30,14 +29,24 @@ export const Route = createRootRoute({
       },
     ],
   }),
-  loader: async () => {
+  beforeLoad: async () => {
     const auth = await getAuthState()
     return { auth }
   },
-  shellComponent: RootDocument,
+  component: RootComponent,
+  shellComponent: RootShell,
 })
 
-function RootDocument({ children }: { children: React.ReactNode }) {
+function RootComponent() {
+  return (
+    <>
+      <Header />
+      <Outlet />
+    </>
+  )
+}
+
+function RootShell({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -45,9 +54,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
         <HeadContent />
       </head>
       <body className="font-sans antialiased [overflow-wrap:anywhere] selection:bg-[rgba(79,184,178,0.24)]">
-        <Header />
         {children}
-        <Footer />
         <TanStackDevtools
           config={{
             position: 'bottom-right',

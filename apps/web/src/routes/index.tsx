@@ -1,8 +1,10 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
 import {
-  Bot, Mail, Table, Inbox, Zap, Shield,
-} from 'lucide-react'
+  Robot, EnvelopeSimple, Table, Tray, Lightning, Shield,
+} from '@phosphor-icons/react'
 import { getAuthState } from '#/lib/gmail.api.ts'
+import LightRays from '#/components/LightRays'
+import ShinyText from '#/components/ShinyText'
 
 export const Route = createFileRoute('/')({
   beforeLoad: ({ context }) => {
@@ -23,17 +25,29 @@ function Landing() {
   return (
     <main className="page-wrap px-4 pb-16 pt-20">
       {/* Hero */}
-      <section className="mb-16 text-center">
-        <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-[var(--chip-line)] bg-[var(--chip-bg)] px-4 py-1.5 text-sm font-semibold text-[var(--sea-ink)]">
+      <section className="relative mb-16 text-center">
+        <div className="pointer-events-none fixed inset-0 overflow-hidden">
+          <LightRays
+            raysColor="#56c6be"
+            raysOrigin="top-center"
+            raysSpeed={0.6}
+            lightSpread={1.2}
+            rayLength={2.5}
+            fadeDistance={1.2}
+            followMouse
+            mouseInfluence={0.05}
+          />
+        </div>
+        <div className="relative z-10 mb-4 inline-flex items-center gap-2 rounded-full border border-[var(--chip-line)] bg-[var(--chip-bg)] px-4 py-1.5 text-sm font-semibold text-[var(--sea-ink)]">
           <span className="h-2 w-2 rounded-full bg-[linear-gradient(90deg,#56c6be,#7ed3bf)]" />
           Job App Bot
         </div>
-        <h1 className="display-title mb-4 text-4xl font-bold leading-tight text-[var(--sea-ink)] sm:text-5xl">
+        <h1 className="relative z-10 display-title mb-4 text-4xl font-bold leading-tight text-[var(--sea-ink)] sm:text-5xl">
           Your Job Search,
           <br />
-          <span className="text-[var(--lagoon)]">Automated</span>
+          <ShinyText text="Automated" color="#4fb8b2" shineColor="#b8f0ed" speed={3} />
         </h1>
-        <p className="mx-auto mb-8 max-w-lg text-lg text-[var(--sea-ink-soft)]">
+        <p className="relative z-10 mx-auto mb-8 max-w-lg text-lg text-[var(--sea-ink-soft)]">
           Track applications, scan emails for responses, and auto-apply to jobs &mdash;
           all from one dashboard connected to your Google account.
         </p>
@@ -41,7 +55,7 @@ function Landing() {
         {configured ? (
           <a
             href={authUrl ?? '#'}
-            className="inline-flex items-center gap-2 rounded-full bg-[var(--lagoon)] px-8 py-3 text-base font-semibold text-white no-underline shadow-lg transition hover:opacity-90"
+            className="relative z-10 inline-flex items-center gap-2 rounded-full bg-[var(--lagoon)] px-8 py-3 text-base font-semibold text-white no-underline shadow-lg transition hover:opacity-90"
           >
             <svg className="h-5 w-5" viewBox="0 0 24 24">
               <path fill="#fff" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" />
@@ -52,7 +66,7 @@ function Landing() {
             Sign in with Google
           </a>
         ) : (
-          <div className="mx-auto max-w-md rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
+          <div className="relative z-10 mx-auto max-w-md rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
             Google OAuth credentials are not configured yet. Set up <code>GOOGLE_CLIENT_ID</code> and <code>GOOGLE_CLIENT_SECRET</code> in your <code>.env</code> file.
           </div>
         )}
@@ -70,22 +84,22 @@ function Landing() {
             description="Pull job leads directly from your Google Sheet. Auto-detects headers and tabs."
           />
           <FeatureCard
-            icon={<Inbox className="h-6 w-6 text-[var(--lagoon)]" />}
+            icon={<Tray className="h-6 w-6 text-[var(--lagoon)]" />}
             title="Email Scanner"
             description="Scan Gmail for rejections, interview invites, and application confirmations."
           />
           <FeatureCard
-            icon={<Bot className="h-6 w-6 text-[var(--lagoon)]" />}
+            icon={<Robot className="h-6 w-6 text-[var(--lagoon)]" />}
             title="Auto Apply"
             description="Identify easy-to-apply jobs and streamline your application workflow."
           />
           <FeatureCard
-            icon={<Mail className="h-6 w-6 text-[var(--lagoon)]" />}
+            icon={<EnvelopeSimple className="h-6 w-6 text-[var(--lagoon)]" />}
             title="Follow-up Tracker"
             description="Track which recruiters to follow up with and when."
           />
           <FeatureCard
-            icon={<Zap className="h-6 w-6 text-[var(--lagoon)]" />}
+            icon={<Lightning className="h-6 w-6 text-[var(--lagoon)]" />}
             title="ATS Detection"
             description="Automatically classifies job postings by their Applicant Tracking System."
           />

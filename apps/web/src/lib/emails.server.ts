@@ -2,11 +2,11 @@ import { db, schema } from '@job-app-bot/db'
 import { ensureDb } from '@job-app-bot/db/init'
 import type { ScannedEmail, ScanResult, EmailClassification } from './gmail.server.ts'
 
-export function saveScannedEmails(results: ScanResult[]): void {
-  ensureDb()
+export async function saveScannedEmails(results: ScanResult[]): Promise<void> {
+  await ensureDb()
   for (const result of results) {
     for (const email of result.emails) {
-      db.insert(schema.scannedEmails)
+      await db.insert(schema.scannedEmails)
         .values({
           messageId: email.messageId,
           company: result.company,
@@ -25,14 +25,13 @@ export function saveScannedEmails(results: ScanResult[]): void {
             scannedAt: new Date().toISOString(),
           },
         })
-        .run()
     }
   }
 }
 
-export function loadSavedEmails(): ScanResult[] {
-  ensureDb()
-  const rows = db.select().from(schema.scannedEmails).all()
+export async function loadSavedEmails(): Promise<ScanResult[]> {
+  await ensureDb()
+  const rows = await db.select().from(schema.scannedEmails)
 
   const byCompany = new Map<string, ScannedEmail[]>()
   for (const row of rows) {
@@ -64,8 +63,8 @@ export function loadSavedEmails(): ScanResult[] {
   return results
 }
 
-export function getSavedEmailCount(): number {
-  ensureDb()
-  const result = db.select().from(schema.scannedEmails).all()
+export async function getSavedEmailCount(): Promise<number> {
+  await ensureDb()
+  const result = await db.select().from(schema.scannedEmails)
   return result.length
 }

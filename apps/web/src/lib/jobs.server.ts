@@ -25,7 +25,7 @@ function loadJobsFromCsv(): JobLead[] {
 }
 
 export async function loadJobs(): Promise<JobLead[]> {
-  ensureDb()
+  await ensureDb()
 
   // If Google Sheets is configured and authenticated, use it
   if (isSheetsConfigured() && isAuthenticated()) {

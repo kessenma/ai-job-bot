@@ -5,14 +5,19 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema.ts",
-    "./init": "./src/init.ts"
+    "./schema-pg": "./src/schema-pg.ts",
+    "./init": "./src/init.ts",
+    "./migrate": "./src/migrate.ts",
+    "./migrate-pg": "./src/migrate-pg.ts",
+    "./drivers/better-sqlite3": "./src/drivers/better-sqlite3.ts",
+    "./drivers/bun-sqlite": "./src/drivers/bun-sqlite.ts",
+    "./drivers/postgres": "./src/drivers/postgres.ts"
   },
   "dependencies": {
-    "better-sqlite3": "^12.6.2",
-    "drizzle-orm": "^0.45.1"
+    "drizzle-orm": "^0.45.1",
+    "postgres": "^3.4.8"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
     "drizzle-kit": "^0.31.9",
     "typescript": "^5.7.2"
   }

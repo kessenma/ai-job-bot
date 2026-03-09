@@ -1,12 +1,7 @@
 {
   "name": "llm",
   "private": true,
-  "type": "module",
   "scripts": {
-    "dev": "echo 'LLM service not yet implemented'",
-    "build": "echo 'LLM service not yet implemented'"
-  },
-  "dependencies": {
-    "@job-app-bot/db": "workspace:*"
+    "dev": "python main.py"
   }
 }

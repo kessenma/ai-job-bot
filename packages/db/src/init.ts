@@ -1,17 +1,14 @@
-import { existsSync } from 'node:fs'
-import { resolve } from 'node:path'
-import { runMigrations } from './migrate.ts'
-
-const dataDir = process.env.DATA_DIR || resolve(process.cwd(), 'data')
-const dbPath = resolve(dataDir, 'job-app-bot.db')
-
 let initialized = false
 
-export function ensureDb() {
+export async function ensureDb() {
   if (initialized) return
-  if (!existsSync(dbPath)) {
-    console.log('First run — creating database...')
-  }
-  runMigrations()
   initialized = true
+
+  if (process.env.DATABASE_URL) {
+    const { runMigrations } = await import('./migrate-pg.ts')
+    await runMigrations()
+  } else {
+    const { runMigrations } = await import('./migrate.ts')
+    runMigrations()
+  }
 }
