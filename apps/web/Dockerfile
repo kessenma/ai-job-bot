@@ -22,7 +22,9 @@ COPY packages/shared/package.json packages/shared/package.json
 
 # Install dependencies with BuildKit cache
 RUN --mount=type=cache,target=/root/.bun/install/cache \
-    bun install
+    --mount=type=cache,target=/root/.bun/cache \
+    BUN_INSTALL_CACHE_DIR=/root/.bun/install/cache \
+    bun install --frozen-lockfile
 
 # ---- Build ----
 FROM base AS builder
