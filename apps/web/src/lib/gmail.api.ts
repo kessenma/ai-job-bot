@@ -4,6 +4,8 @@ import {
   isConfigured,
   scanEmailsForCompany,
   sendEmail,
+  disconnectGmail,
+  getAuthUrl,
 } from './gmail.server.ts'
 import { saveScannedEmails, loadSavedEmails, getSavedEmailCount } from './emails.server.ts'
 import { isSessionValid, verifyPassword, createSession, destroySession } from './auth.server.ts'
@@ -29,9 +31,12 @@ export const logoutSession = createServerFn({ method: 'POST' }).handler(() => {
 })
 
 export const getGmailStatus = createServerFn({ method: 'GET' }).handler(async () => {
-  const connected = isConfigured() && isAuthenticated()
+  const configured = isConfigured()
+  const connected = configured && isAuthenticated()
   return {
+    configured,
     connected,
+    authUrl: configured ? getAuthUrl() : null,
     savedEmailCount: await getSavedEmailCount(),
   }
 })
@@ -64,3 +69,8 @@ export const sendGmailEmail = createServerFn({ method: 'POST' })
     const result = await sendEmail(data.to, data.subject, data.body)
     return { success: true, messageId: result.messageId }
   })
+
+export const disconnectGmailAccount = createServerFn({ method: 'POST' }).handler(() => {
+  disconnectGmail()
+  return { success: true }
+})
