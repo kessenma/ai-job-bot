@@ -8,7 +8,8 @@
     "rebuild": "echo 'No native modules to rebuild'",
     "docker:dev": "node scripts/docker-dev.mjs",
     "docker:dev:detach": "node scripts/docker-dev.mjs --detach",
-    "docker:down": "node scripts/docker-dev.mjs --down"
+    "docker:down": "node scripts/docker-dev.mjs --down",
+    "build-check": "pnpm --filter web check-types && pnpm --filter @job-app-bot/playwright check-types && pnpm --filter llm check-types"
   },
   "trustedDependencies": [
     "esbuild",

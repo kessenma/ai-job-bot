@@ -103,6 +103,35 @@ export function runMigrations() {
 
     CREATE INDEX IF NOT EXISTS idx_job_cover_letters_job_url ON job_cover_letters(job_url);
 
+    CREATE TABLE IF NOT EXISTS job_descriptions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      job_url TEXT NOT NULL UNIQUE,
+      raw TEXT NOT NULL,
+      skills TEXT,
+      company_info TEXT,
+      pay TEXT,
+      other TEXT,
+      language TEXT,
+      scraped_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_job_descriptions_job_url ON job_descriptions(job_url);
+
+    CREATE TABLE IF NOT EXISTS linkedin_searches (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      keywords TEXT NOT NULL,
+      city TEXT,
+      country TEXT,
+      skills TEXT,
+      results_count INTEGER NOT NULL DEFAULT 0,
+      saved_count INTEGER NOT NULL DEFAULT 0,
+      results TEXT NOT NULL,
+      saved_to_sheet INTEGER DEFAULT 0,
+      searched_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_linkedin_searches_searched_at ON linkedin_searches(searched_at);
+
     CREATE TABLE IF NOT EXISTS apply_profile (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       first_name TEXT NOT NULL,

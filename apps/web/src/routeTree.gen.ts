@@ -13,7 +13,6 @@ import { Route as SheetsRouteImport } from './routes/sheets'
 import { Route as SetupRouteImport } from './routes/setup'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as FollowUpRouteImport } from './routes/follow-up'
-import { Route as EmailScanRouteImport } from './routes/email-scan'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as AutoApplyRouteImport } from './routes/auto-apply'
 import { Route as AboutRouteImport } from './routes/about'
@@ -38,11 +37,6 @@ const SettingsRoute = SettingsRouteImport.update({
 const FollowUpRoute = FollowUpRouteImport.update({
   id: '/follow-up',
   path: '/follow-up',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const EmailScanRoute = EmailScanRouteImport.update({
-  id: '/email-scan',
-  path: '/email-scan',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DashboardRoute = DashboardRouteImport.update({
@@ -76,7 +70,6 @@ export interface FileRoutesByFullPath {
   '/about': typeof AboutRoute
   '/auto-apply': typeof AutoApplyRoute
   '/dashboard': typeof DashboardRoute
-  '/email-scan': typeof EmailScanRoute
   '/follow-up': typeof FollowUpRoute
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
@@ -88,7 +81,6 @@ export interface FileRoutesByTo {
   '/about': typeof AboutRoute
   '/auto-apply': typeof AutoApplyRoute
   '/dashboard': typeof DashboardRoute
-  '/email-scan': typeof EmailScanRoute
   '/follow-up': typeof FollowUpRoute
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
@@ -101,7 +93,6 @@ export interface FileRoutesById {
   '/about': typeof AboutRoute
   '/auto-apply': typeof AutoApplyRoute
   '/dashboard': typeof DashboardRoute
-  '/email-scan': typeof EmailScanRoute
   '/follow-up': typeof FollowUpRoute
   '/settings': typeof SettingsRoute
   '/setup': typeof SetupRoute
@@ -115,7 +106,6 @@ export interface FileRouteTypes {
     | '/about'
     | '/auto-apply'
     | '/dashboard'
-    | '/email-scan'
     | '/follow-up'
     | '/settings'
     | '/setup'
@@ -127,7 +117,6 @@ export interface FileRouteTypes {
     | '/about'
     | '/auto-apply'
     | '/dashboard'
-    | '/email-scan'
     | '/follow-up'
     | '/settings'
     | '/setup'
@@ -139,7 +128,6 @@ export interface FileRouteTypes {
     | '/about'
     | '/auto-apply'
     | '/dashboard'
-    | '/email-scan'
     | '/follow-up'
     | '/settings'
     | '/setup'
@@ -152,7 +140,6 @@ export interface RootRouteChildren {
   AboutRoute: typeof AboutRoute
   AutoApplyRoute: typeof AutoApplyRoute
   DashboardRoute: typeof DashboardRoute
-  EmailScanRoute: typeof EmailScanRoute
   FollowUpRoute: typeof FollowUpRoute
   SettingsRoute: typeof SettingsRoute
   SetupRoute: typeof SetupRoute
@@ -188,13 +175,6 @@ declare module '@tanstack/react-router' {
       path: '/follow-up'
       fullPath: '/follow-up'
       preLoaderRoute: typeof FollowUpRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/email-scan': {
-      id: '/email-scan'
-      path: '/email-scan'
-      fullPath: '/email-scan'
-      preLoaderRoute: typeof EmailScanRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/dashboard': {
@@ -240,7 +220,6 @@ const rootRouteChildren: RootRouteChildren = {
   AboutRoute: AboutRoute,
   AutoApplyRoute: AutoApplyRoute,
   DashboardRoute: DashboardRoute,
-  EmailScanRoute: EmailScanRoute,
   FollowUpRoute: FollowUpRoute,
   SettingsRoute: SettingsRoute,
   SetupRoute: SetupRoute,

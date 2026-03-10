@@ -1,9 +1,8 @@
 import { useNavigate, useRouterState } from '@tanstack/react-router'
-import { SquaresFour, Robot, EnvelopeSimple, GearSix, Tray, BookOpen, Table } from '@phosphor-icons/react'
-// @ts-expect-error -- JSX component without type declarations
+import { SquaresFour, Robot, EnvelopeSimple, GearSix, BookOpen, Table } from '@phosphor-icons/react'
 import PillNav from './PillNav'
-// @ts-expect-error -- JSX component without type declarations
 import Dock from './Dock'
+import { useScanContext } from '#/hooks/useScanContext.tsx'
 
 export default function Header() {
   const navigate = useNavigate()
@@ -34,12 +33,21 @@ function UnauthenticatedNav({ currentPath }: { currentPath: string }) {
         pillColor="var(--lagoon, #56c6be)"
         hoveredPillTextColor="#fff"
         pillTextColor="#fff"
+        onMobileMenuClick={() => {}}
       />
     </div>
   )
 }
 
 function AuthenticatedNav({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
+  const { descScan, linkedInScan } = useScanContext()
+  const descProgress = descScan.active && descScan.progress.total > 0
+    ? descScan.progress.current / descScan.progress.total
+    : undefined
+  const liProgress = linkedInScan.active ? linkedInScan.progress : undefined
+  // Show whichever scan is active (desc scan takes priority if both somehow run)
+  const scanProgress = descProgress ?? liProgress
+
   const dockItems = [
     {
       icon: <SquaresFour className="h-6 w-6 text-[var(--lagoon)]" />,
@@ -62,14 +70,10 @@ function AuthenticatedNav({ navigate }: { navigate: ReturnType<typeof useNavigat
       onClick: () => navigate({ to: '/sheets' }),
     },
     {
-      icon: <Tray className="h-6 w-6 text-[var(--lagoon)]" />,
-      label: 'Email Scan',
-      onClick: () => navigate({ to: '/email-scan' }),
-    },
-    {
       icon: <BookOpen className="h-6 w-6 text-[var(--lagoon)]" />,
-      label: 'Setup',
+      label: scanProgress !== undefined ? `Setup (${Math.round(scanProgress * 100)}%)` : 'Setup',
       onClick: () => navigate({ to: '/setup' }),
+      progress: scanProgress,
     },
     {
       icon: <GearSix className="h-6 w-6 text-[var(--lagoon)]" />,

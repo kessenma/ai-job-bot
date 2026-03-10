@@ -218,3 +218,182 @@ export function clearSheetsCache() {
   cachedJobs = null
   cachedAt = 0
 }
+
+// --- Auto-search tab write support ---
+
+const AUTO_SEARCH_TAB = 'auto-search'
+
+// Headers matching the existing sheet column format
+const AUTO_SEARCH_HEADERS = [
+  'Date',
+  'Company',
+  'Role',
+  'Location',
+  'Recruiter LinkedIn Link',
+  'Recruiter Email ID',
+  'Recruiter Phone Number',
+  'Link to the Position',
+  'Activity Status',
+  'Alignment Status',
+  "Candidates Remarks if the leads are not aligned/Partially aligned",
+  'Application Status',
+  'Follow Up Email Status',
+  "Account Manager's Remarks regarding Applications",
+]
+
+export async function ensureAutoSearchTab(): Promise<void> {
+  const sheetId = getSheetId()
+  if (!sheetId) throw new Error('No Google Sheet configured')
+  if (!isAuthenticated()) throw new Error('Not authenticated. Connect your Google account first.')
+
+  const auth = getAuthenticatedClient()
+  const sheets = google.sheets({ version: 'v4', auth })
+
+  // Check if tab already exists
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: sheetId })
+  const existingTabs = meta.data.sheets?.map((s) => s.properties?.title).filter(Boolean) as string[]
+
+  if (existingTabs.includes(AUTO_SEARCH_TAB)) return
+
+  // Create the tab
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: sheetId,
+    requestBody: {
+      requests: [{ addSheet: { properties: { title: AUTO_SEARCH_TAB } } }],
+    },
+  })
+
+  // Write the header row
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: sheetId,
+    range: `'${AUTO_SEARCH_TAB}'!A1`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [AUTO_SEARCH_HEADERS] },
+  })
+}
+
+export async function appendJobToAutoSearchTab(job: {
+  company: string
+  role: string
+  location: string
+  jobUrl: string
+  date?: string
+}): Promise<void> {
+  const sheetId = getSheetId()
+  if (!sheetId) throw new Error('No Google Sheet configured')
+  if (!isAuthenticated()) throw new Error('Not authenticated. Connect your Google account first.')
+
+  const auth = getAuthenticatedClient()
+  const sheets = google.sheets({ version: 'v4', auth })
+
+  const row = [
+    job.date || new Date().toISOString().split('T')[0], // Date
+    job.company,                                         // Company
+    job.role,                                            // Role
+    job.location,                                        // Location
+    '',                                                  // Recruiter LinkedIn
+    '',                                                  // Recruiter Email
+    '',                                                  // Recruiter Phone
+    job.jobUrl,                                          // Link to the Position
+    'New',                                               // Activity Status
+    '',                                                  // Alignment Status
+    '',                                                  // Candidate Remarks
+    'Not Applied',                                       // Application Status
+    '',                                                  // Follow Up Email Status
+    '',                                                  // Account Manager Remarks
+  ]
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: sheetId,
+    range: `'${AUTO_SEARCH_TAB}'!A:N`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [row] },
+  })
+}
+
+// --- Job-scrape tab write support ---
+
+const JOB_SCRAPE_TAB = 'job-scrape'
+
+const JOB_SCRAPE_HEADERS = [
+  'Date',
+  'Company',
+  'Role',
+  'Location',
+  'LinkedIn Job URL',
+  'External Job URL',
+  'Matched Skills',
+  'Missing Skills',
+  'Description',
+  'Search Keywords',
+]
+
+export async function ensureJobScrapeTab(): Promise<void> {
+  const sheetId = getSheetId()
+  if (!sheetId) throw new Error('No Google Sheet configured')
+  if (!isAuthenticated()) throw new Error('Not authenticated. Connect your Google account first.')
+
+  const auth = getAuthenticatedClient()
+  const sheets = google.sheets({ version: 'v4', auth })
+
+  const meta = await sheets.spreadsheets.get({ spreadsheetId: sheetId })
+  const existingTabs = meta.data.sheets?.map((s) => s.properties?.title).filter(Boolean) as string[]
+
+  if (existingTabs.includes(JOB_SCRAPE_TAB)) return
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId: sheetId,
+    requestBody: {
+      requests: [{ addSheet: { properties: { title: JOB_SCRAPE_TAB } } }],
+    },
+  })
+
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: sheetId,
+    range: `'${JOB_SCRAPE_TAB}'!A1`,
+    valueInputOption: 'RAW',
+    requestBody: { values: [JOB_SCRAPE_HEADERS] },
+  })
+}
+
+export async function appendJobsToJobScrapeTab(jobs: {
+  company: string
+  role: string
+  location: string
+  jobUrl: string
+  externalUrl: string
+  matchedSkills: string[]
+  missingSkills: string[]
+  description: string
+  searchKeywords: string
+  date?: string
+}[]): Promise<void> {
+  if (jobs.length === 0) return
+
+  const sheetId = getSheetId()
+  if (!sheetId) throw new Error('No Google Sheet configured')
+  if (!isAuthenticated()) throw new Error('Not authenticated. Connect your Google account first.')
+
+  const auth = getAuthenticatedClient()
+  const sheets = google.sheets({ version: 'v4', auth })
+
+  const rows = jobs.map((job) => [
+    job.date || new Date().toISOString().split('T')[0],
+    job.company,
+    job.role,
+    job.location,
+    job.jobUrl,
+    job.externalUrl,
+    job.matchedSkills.join(', '),
+    job.missingSkills.join(', '),
+    job.description.slice(0, 500),
+    job.searchKeywords,
+  ])
+
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: sheetId,
+    range: `'${JOB_SCRAPE_TAB}'!A:J`,
+    valueInputOption: 'RAW',
+    requestBody: { values: rows },
+  })
+}

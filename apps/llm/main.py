@@ -4,7 +4,7 @@ import logging
 import gc
 import time
 import threading
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, cast
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -19,6 +19,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from llama_cpp import Llama
+from llama_cpp.llama_types import CreateCompletionResponse
 import psutil
 
 logging.basicConfig(level=logging.INFO)
@@ -248,7 +249,6 @@ def download_model(model_id: str) -> None:
             repo_id=info["repo"],
             filename=info["filename"],
             local_dir=str(dest.parent),
-            local_dir_use_symlinks=False,
         )
         # Rename to our standard local name
         dl = Path(downloaded_path)
@@ -520,14 +520,14 @@ async def chat(req: ChatRequest):
 
     start = time.time()
     try:
-        output = llm(
+        output = cast(CreateCompletionResponse, llm(
             prompt,
             max_tokens=min(req.max_tokens, 1024),
             temperature=req.temperature,
             top_p=0.9,
             stop=["<|eot_id|>", "<|start_header_id|>", "<|end_of_text|>"],
             echo=False,
-        )
+        ))
     except Exception as e:
         logger.error(f"Chat generation error: {e}")
         raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
@@ -592,14 +592,14 @@ async def generate_cover_letter(req: CoverLetterRequest):
 
     start = time.time()
     try:
-        output = llm(
+        output = cast(CreateCompletionResponse, llm(
             prompt,
             max_tokens=min(req.max_length, 2048),
             temperature=req.temperature,
             top_p=0.9,
             stop=["<|eot_id|>", "<|start_header_id|>", "<|end_of_text|>"],
             echo=False,
-        )
+        ))
     except Exception as e:
         logger.error(f"Generation error: {e}")
         raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
@@ -622,7 +622,7 @@ async def generate_cover_letter(req: CoverLetterRequest):
         cover_letter=text,
         model_info={
             "model_id": active_model_id,
-            "model_name": AVAILABLE_MODELS[active_model_id]["name"],
+            "model_name": AVAILABLE_MODELS[active_model_id]["name"] if active_model_id else "unknown",
             "context_window": N_CTX,
             "temperature": req.temperature,
         },

@@ -24,6 +24,9 @@ RUN mkdir -p /home/appuser/.cache && \
     cp -r /root/.cache/ms-playwright /home/appuser/.cache/ms-playwright && \
     chown -R appuser:appuser /home/appuser/.cache
 
+# Create writable data directory for persistent state (LinkedIn profiles, etc.)
+RUN mkdir -p /app/data && chown appuser:appuser /app/data
+
 USER appuser
 
 EXPOSE 8084

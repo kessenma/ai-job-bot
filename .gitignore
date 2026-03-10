@@ -40,6 +40,9 @@ apps/web/assets/
 .mcp.json
 apps/web/.mcp.json
 
+# Example code (third-party references)
+apps/example-code/
+
 # Misc
 docker-logs.md
 

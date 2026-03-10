@@ -2,6 +2,7 @@
   "name": "llm",
   "private": true,
   "scripts": {
-    "dev": "python main.py"
+    "dev": "python main.py",
+    "check-types": "uvx pyright ."
   }
 }

@@ -80,10 +80,6 @@ export function TestChat({ activeModelName }: { activeModelName?: string }) {
     }
   }, [input, loading, attachedDocs])
 
-  const unattachedDocs = availableDocs.filter(
-    (d) => d.hasText && !attachedDocs.some((a) => a.name === d.name),
-  )
-
   return (
     <div className="mt-6 rounded-xl border border-[var(--line)] bg-[var(--surface)]">
       {/* Header */}

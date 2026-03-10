@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import { FileArrowUp, FileDoc, Trash, CheckCircle, Circle } from '@phosphor-icons/react'
-import { getResume, uploadResume, removeResume } from '#/lib/resume.api.ts'
+import { uploadResume, removeResume } from '#/lib/resume.api.ts'
 import type { FileInfo } from '#/lib/uploads.server.ts'
 import { DropZone } from '#/components/ui/index.ts'
 import { fileToBase64 } from './fileToBase64.ts'

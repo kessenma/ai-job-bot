@@ -2,15 +2,17 @@ import { useRef, useState } from 'react'
 import {
   MapPinIcon, ArrowSquareOutIcon, EnvelopeSimpleIcon, PhoneIcon, LinkedinLogoIcon,
   FileText, CheckCircle, Trash, UploadSimple, CircleNotch,
+  CaretDown, CaretUp, Buildings, Lightbulb, ListBullets, MagnifyingGlass, CurrencyCircleDollar, Globe,
 } from '@phosphor-icons/react'
 import {
   attachCoverLetterToJob,
   uploadCoverLetterForJob,
   removeCoverLetterFromJob,
 } from '#/lib/jobs.api.ts'
+import { scrapeOneJobDescription } from '#/lib/playwright.api.ts'
 import { ATS_DIFFICULTY } from '#/lib/ats-classifier.ts'
 import type { FileInfo } from '#/lib/uploads.server.ts'
-import type { JobLead } from '#/lib/types.ts'
+import type { JobLead, JobDescription } from '#/lib/types.ts'
 import type { ScannedEmail } from '#/lib/gmail.server.ts'
 import {
   Sheet,
@@ -28,6 +30,8 @@ const diffColors = {
 
 export type CoverLetterMap = Record<string, { uploadName: string; originalName: string; createdAt: string }>
 
+export type JobDescriptionMap = Record<string, JobDescription>
+
 export function DashboardJobSheet({
   selectedJob,
   onClose,
@@ -35,6 +39,8 @@ export function DashboardJobSheet({
   coverLetter,
   coverLetterSamples,
   onCoverLetterChange,
+  description,
+  onDescriptionChange,
 }: {
   selectedJob: JobLead | null
   onClose: () => void
@@ -42,6 +48,8 @@ export function DashboardJobSheet({
   coverLetter?: CoverLetterMap[string]
   coverLetterSamples: FileInfo[]
   onCoverLetterChange: (jobUrl: string, cl: CoverLetterMap[string] | null) => void
+  description?: JobDescription
+  onDescriptionChange: (jobUrl: string, desc: JobDescription) => void
 }) {
   return (
     <Sheet open={selectedJob !== null} onOpenChange={(open) => { if (!open) onClose() }}>
@@ -53,6 +61,8 @@ export function DashboardJobSheet({
             coverLetter={coverLetter}
             coverLetterSamples={coverLetterSamples}
             onCoverLetterChange={onCoverLetterChange}
+            description={description}
+            onDescriptionChange={onDescriptionChange}
           />
         )}
       </SheetContent>
@@ -66,15 +76,21 @@ function JobDetailContent({
   coverLetter,
   coverLetterSamples,
   onCoverLetterChange,
+  description,
+  onDescriptionChange,
 }: {
   job: JobLead
   emails: ScannedEmail[]
   coverLetter?: CoverLetterMap[string]
   coverLetterSamples: FileInfo[]
   onCoverLetterChange: (jobUrl: string, cl: CoverLetterMap[string] | null) => void
+  description?: JobDescription
+  onDescriptionChange: (jobUrl: string, desc: JobDescription) => void
 }) {
-  const [activeTab, setActiveTab] = useState<'details' | 'emails' | 'cover-letter'>('details')
+  const [activeTab, setActiveTab] = useState<'details' | 'emails' | 'cover-letter' | 'requirements'>('details')
   const [clLoading, setClLoading] = useState(false)
+  const [scrapeLoading, setScrapeLoading] = useState(false)
+  const [viewAllOpen, setViewAllOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const difficulty = ATS_DIFFICULTY[job.atsPlatform]
@@ -99,6 +115,7 @@ function JobDetailContent({
           { id: 'details' as const, label: 'Details' },
           { id: 'emails' as const, label: `Emails${emails.length > 0 ? ` (${emails.length})` : ''}` },
           { id: 'cover-letter' as const, label: `Cover Letter${coverLetter ? ' ✓' : ''}` },
+          { id: 'requirements' as const, label: `Requirements${description ? ' ✓' : ''}` },
         ].map((t) => (
           <button
             key={t.id}
@@ -268,6 +285,133 @@ function JobDetailContent({
           </div>
         )}
 
+        {activeTab === 'requirements' && (
+          <div className="space-y-4">
+            {/* Scrape button */}
+            <button
+              onClick={async () => {
+                if (!job.jobUrl) return
+                setScrapeLoading(true)
+                try {
+                  const result = await scrapeOneJobDescription({ data: { jobUrl: job.jobUrl } })
+                  onDescriptionChange(job.jobUrl, result)
+                } catch {
+                  // ignore
+                } finally {
+                  setScrapeLoading(false)
+                }
+              }}
+              disabled={scrapeLoading}
+              className="flex items-center gap-2 rounded-full bg-[var(--lagoon)] px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
+            >
+              {scrapeLoading ? (
+                <CircleNotch className="h-4 w-4 animate-spin" />
+              ) : (
+                <MagnifyingGlass className="h-4 w-4" />
+              )}
+              {scrapeLoading ? 'Scraping...' : description ? 'Re-scrape Description' : 'Scrape Description'}
+            </button>
+
+            {description ? (
+              <>
+                {/* View All accordion */}
+                <div className="rounded-xl border border-[var(--line)] overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setViewAllOpen(!viewAllOpen)}
+                    className="flex w-full items-center justify-between px-4 py-3 text-left text-sm font-medium text-[var(--sea-ink)] hover:bg-[var(--surface)]"
+                  >
+                    <span className="flex items-center gap-2">
+                      <ListBullets className="h-4 w-4 text-[var(--sea-ink-soft)]" />
+                      View All
+                    </span>
+                    {viewAllOpen ? (
+                      <CaretUp className="h-4 w-4 text-[var(--sea-ink-soft)]" />
+                    ) : (
+                      <CaretDown className="h-4 w-4 text-[var(--sea-ink-soft)]" />
+                    )}
+                  </button>
+                  {viewAllOpen && (
+                    <div className="border-t border-[var(--line)] px-4 py-3">
+                      <div className="max-h-80 overflow-y-auto whitespace-pre-wrap text-xs text-[var(--sea-ink-soft)] leading-relaxed">
+                        {description.raw}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Company Info section */}
+                {description.companyInfo && (
+                  <div>
+                    <div className="mb-2 flex items-center gap-2">
+                      <Buildings className="h-4 w-4 text-[var(--lagoon)]" />
+                      <div className="text-xs font-medium text-[var(--sea-ink-soft)] uppercase tracking-wider">Company Info</div>
+                    </div>
+                    <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 text-sm text-[var(--sea-ink)] leading-relaxed whitespace-pre-wrap">
+                      {description.companyInfo}
+                    </div>
+                  </div>
+                )}
+
+                {/* Skills section */}
+                {description.skills && (
+                  <div>
+                    <div className="mb-2 flex items-center gap-2">
+                      <Lightbulb className="h-4 w-4 text-[var(--lagoon)]" />
+                      <div className="text-xs font-medium text-[var(--sea-ink-soft)] uppercase tracking-wider">Skills & Requirements</div>
+                    </div>
+                    <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4">
+                      <SkillsList text={description.skills} />
+                    </div>
+                  </div>
+                )}
+
+                {/* Pay section */}
+                <div>
+                  <div className="mb-2 flex items-center gap-2">
+                    <CurrencyCircleDollar className="h-4 w-4 text-[var(--lagoon)]" />
+                    <div className="text-xs font-medium text-[var(--sea-ink-soft)] uppercase tracking-wider">Pay</div>
+                  </div>
+                  <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 text-sm text-[var(--sea-ink)] leading-relaxed whitespace-pre-wrap">
+                    {description.pay || 'N/A'}
+                  </div>
+                </div>
+
+                {/* Other section */}
+                {description.other && (
+                  <div>
+                    <div className="mb-2 flex items-center gap-2">
+                      <ListBullets className="h-4 w-4 text-[var(--lagoon)]" />
+                      <div className="text-xs font-medium text-[var(--sea-ink-soft)] uppercase tracking-wider">Other</div>
+                    </div>
+                    <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4 text-sm text-[var(--sea-ink)] leading-relaxed whitespace-pre-wrap">
+                      {description.other}
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-3 text-[10px] text-[var(--sea-ink-soft)] opacity-60">
+                  <span>Scraped {new Date(description.scrapedAt).toLocaleDateString()}</span>
+                  {description.language && description.language !== 'unknown' && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-[var(--surface-strong)] px-2 py-0.5 text-[10px] font-medium text-[var(--sea-ink-soft)]">
+                      <Globe className="h-3 w-3" />
+                      {description.language === 'de' ? 'German' : 'English'}
+                    </span>
+                  )}
+                </div>
+              </>
+            ) : !scrapeLoading ? (
+              <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-6 text-center">
+                <ListBullets className="mx-auto h-8 w-8 text-[var(--sea-ink-soft)] opacity-50" />
+                <p className="mt-2 text-sm text-[var(--sea-ink-soft)]">No description scraped yet.</p>
+                <p className="mt-1 text-xs text-[var(--sea-ink-soft)] opacity-70">
+                  Click "Scrape Description" to extract the job posting.
+                </p>
+              </div>
+            ) : null}
+          </div>
+        )}
+
         {activeTab === 'cover-letter' && (
           <div className="space-y-4">
             {/* Hidden file input */}
@@ -402,5 +546,28 @@ function JobDetailContent({
         )}
       </div>
     </>
+  )
+}
+
+/** Renders skills text as a bullet list, splitting on newlines and bullet prefixes */
+function SkillsList({ text }: { text: string }) {
+  const lines = text
+    .split('\n')
+    .map((l) => l.replace(/^\s*[-•*▪▸›➤◆]\s*/, '').replace(/^\d+[.)]\s*/, '').trim())
+    .filter((l) => l.length > 0)
+
+  if (lines.length <= 1) {
+    return <div className="text-sm text-[var(--sea-ink)] leading-relaxed whitespace-pre-wrap">{text}</div>
+  }
+
+  return (
+    <ul className="space-y-1.5">
+      {lines.map((line, i) => (
+        <li key={i} className="flex items-start gap-2 text-sm text-[var(--sea-ink)]">
+          <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--lagoon)]" />
+          {line}
+        </li>
+      ))}
+    </ul>
   )
 }

@@ -69,6 +69,18 @@ export const screenshots = sqliteTable('screenshots', {
   createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
 })
 
+export const jobDescriptions = sqliteTable('job_descriptions', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  jobUrl: text('job_url').notNull().unique(),
+  raw: text('raw').notNull(),
+  skills: text('skills'),
+  companyInfo: text('company_info'),
+  pay: text('pay'),
+  other: text('other'),
+  language: text('language'),
+  scrapedAt: text('scraped_at').notNull().$defaultFn(() => new Date().toISOString()),
+})
+
 export const jobCoverLetters = sqliteTable('job_cover_letters', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   jobUrl: text('job_url').notNull().unique(),
@@ -96,6 +108,19 @@ export const applyProfile = sqliteTable('apply_profile', {
   gender: text('gender'), // "Male" / "Female" / "Non-binary" / "Prefer not to say"
   referralSource: text('referral_source'), // "LinkedIn" / "Company Website" etc.
   updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
+})
+
+export const linkedinSearches = sqliteTable('linkedin_searches', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  keywords: text('keywords').notNull(),
+  city: text('city'),
+  country: text('country'),
+  skills: text('skills'), // comma-separated
+  resultsCount: integer('results_count').notNull().default(0),
+  savedCount: integer('saved_count').notNull().default(0),
+  results: text('results').notNull(), // JSON array of LinkedInSearchResult
+  savedToSheet: integer('saved_to_sheet', { mode: 'boolean' }).default(false),
+  searchedAt: text('searched_at').notNull().$defaultFn(() => new Date().toISOString()),
 })
 
 export const syncLog = sqliteTable('sync_log', {

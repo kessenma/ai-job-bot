@@ -1,6 +1,6 @@
 import { createServerFn } from '@tanstack/react-start'
 import { db, schema } from '@job-app-bot/db'
-import { inArray, eq, and } from 'drizzle-orm'
+import { inArray, eq } from 'drizzle-orm'
 import { deleteFile, listFiles, listFilesWithText, saveFile } from './uploads.server.ts'
 import type { FileInfo } from './uploads.server.ts'
 

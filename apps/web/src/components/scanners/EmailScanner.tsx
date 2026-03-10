@@ -1,31 +1,21 @@
-import { createFileRoute } from '@tanstack/react-router'
 import { useState, useCallback } from 'react'
 import {
-  Tray, MagnifyingGlass, CheckCircle, XCircle,
+  MagnifyingGlass, Link as LinkIcon, LinkBreak, CheckCircle, XCircle,
   ChatCenteredDots, CircleNotch, CaretDown, CaretUp, EnvelopeSimple,
 } from '@phosphor-icons/react'
-import { getJobs } from '#/lib/jobs.api.ts'
-import { getGmailStatus, scanOneCompany, getSavedEmails } from '#/lib/gmail.api.ts'
+import { scanOneCompany, disconnectGmailAccount } from '#/lib/gmail.api.ts'
 import type { ScanResult, ScannedEmail } from '#/lib/gmail.server.ts'
+import type { JobLead } from '#/lib/types.ts'
 import { ProgressBar, StatCard, ErrorAlert } from '#/components/ui/index.ts'
-import { requireAuth } from '#/lib/auth-guard.ts'
 
-export const Route = createFileRoute('/email-scan')({
-  beforeLoad: requireAuth,
-  loader: async () => {
-    const [jobs, gmailStatus, savedEmails] = await Promise.all([
-      getJobs(),
-      getGmailStatus(),
-      getSavedEmails(),
-    ])
-    return { jobs, gmailStatus, savedEmails }
-  },
-  component: EmailScan,
-})
+interface EmailScannerProps {
+  jobs: JobLead[]
+  gmailStatus: { configured: boolean; connected: boolean; authUrl: string | null }
+  savedEmails: ScanResult[]
+}
 
-function EmailScan() {
-  const { jobs, gmailStatus: initialStatus, savedEmails } = Route.useLoaderData()
-  const connected = initialStatus.connected
+export function EmailScanner({ jobs, gmailStatus, savedEmails }: EmailScannerProps) {
+  const [connected, setConnected] = useState(gmailStatus.connected)
   const [scanning, setScanning] = useState(false)
   const [scanProgress, setScanProgress] = useState({ current: 0, total: 0, currentCompany: '' })
   const [results, setResults] = useState<ScanResult[] | null>(
@@ -72,24 +62,46 @@ function EmailScan() {
   const totalEmails = allResults.reduce((sum, r) => sum + r.emails.length, 0)
 
   return (
-    <main className="page-wrap px-4 pb-8 pt-14">
-      <h1 className="mb-2 flex items-center gap-2 text-2xl font-bold text-[var(--sea-ink)]">
-        <Tray className="h-6 w-6 text-[var(--lagoon)]" />
-        Email Scanner
-      </h1>
-      <p className="mb-6 text-sm text-[var(--sea-ink-soft)]">
-        Scan your Gmail for rejection and interview emails to auto-update job statuses.
-      </p>
-
-      {!connected && (
-        <div className="island-shell mb-6 rounded-2xl p-4 text-sm text-amber-700 border border-amber-200 bg-amber-50">
-          Gmail is not connected. Contact the administrator to set up the Gmail connection.
+    <div>
+      {/* Connection status */}
+      <div className="island-shell mb-6 rounded-2xl p-6">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <EnvelopeSimple className="h-5 w-5 text-[var(--lagoon)]" />
+            <div>
+              <div className="font-semibold text-[var(--sea-ink)]">Gmail Connection</div>
+              <div className="text-sm text-[var(--sea-ink-soft)]">
+                {!gmailStatus.configured
+                  ? 'Google API credentials not configured. Complete the setup guide above.'
+                  : connected
+                    ? 'Your Gmail account is connected (read-only access).'
+                    : 'Connect your Gmail to scan for application responses.'}
+              </div>
+            </div>
+          </div>
+          {connected ? (
+            <button
+              onClick={handleDisconnect}
+              className="flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-600 transition hover:bg-red-100"
+            >
+              <LinkBreak className="h-3.5 w-3.5" />
+              Disconnect
+            </button>
+          ) : gmailStatus.configured ? (
+            <a
+              href={gmailStatus.authUrl ?? '#'}
+              className="flex items-center gap-1.5 rounded-full bg-[var(--lagoon)] px-4 py-2 text-sm font-medium text-white no-underline transition hover:opacity-90"
+            >
+              <LinkIcon className="h-3.5 w-3.5" />
+              Connect Gmail
+            </a>
+          ) : null}
         </div>
-      )}
+      </div>
 
       {/* Scan controls */}
       {connected && (
-        <section className="mb-6">
+        <div className="mb-6">
           <button
             onClick={handleScan}
             disabled={scanning}
@@ -103,7 +115,6 @@ function EmailScan() {
             {scanning ? 'Scanning emails...' : `Scan Emails (${companies.length} companies)`}
           </button>
 
-          {/* Progress bar during scan */}
           {scanning && (
             <div className="mt-3 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4">
               <ProgressBar
@@ -117,13 +128,12 @@ function EmailScan() {
           )}
 
           {error && <div className="mt-3"><ErrorAlert message={error} /></div>}
-        </section>
+        </div>
       )}
 
       {/* Results */}
       {allResults.length > 0 && (
         <>
-          {/* Source indicator */}
           <div className="mb-4 rounded-lg bg-[var(--surface)] px-4 py-2 text-xs text-[var(--sea-ink-soft)]">
             {scanning
               ? `Scanning... ${totalEmails} emails found so far across ${allResults.length} companies`
@@ -132,52 +142,24 @@ function EmailScan() {
                 : `Showing ${totalEmails} previously scanned emails across ${allResults.length} companies`}
           </div>
 
-          {/* Summary */}
-          <section className="mb-6 grid grid-cols-4 gap-3">
+          <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <StatCard label="Rejections" value={rejections.length} colorClass="bg-red-500/10 text-red-700" />
             <StatCard label="Interviews" value={interviews.length} colorClass="bg-purple-500/10 text-purple-700" />
             <StatCard label="Applied" value={applied.length} colorClass="bg-blue-500/10 text-blue-700" />
             <StatCard label="Other" value={other.length} colorClass="bg-gray-500/10 text-gray-600" />
-          </section>
+          </div>
 
-          {/* Rejections */}
           {rejections.length > 0 && (
-            <ResultSection
-              title="Rejections"
-              icon={<XCircle className="h-5 w-5 text-red-600" />}
-              results={rejections}
-              colorClass="border-red-200"
-            />
+            <ResultSection title="Rejections" icon={<XCircle className="h-5 w-5 text-red-600" />} results={rejections} colorClass="border-red-200" />
           )}
-
-          {/* Interviews */}
           {interviews.length > 0 && (
-            <ResultSection
-              title="Interview / Positive Signals"
-              icon={<CheckCircle className="h-5 w-5 text-purple-600" />}
-              results={interviews}
-              colorClass="border-purple-200"
-            />
+            <ResultSection title="Interview / Positive Signals" icon={<CheckCircle className="h-5 w-5 text-purple-600" />} results={interviews} colorClass="border-purple-200" />
           )}
-
-          {/* Applied */}
           {applied.length > 0 && (
-            <ResultSection
-              title="Applied / Acknowledgments"
-              icon={<EnvelopeSimple className="h-5 w-5 text-blue-600" />}
-              results={applied}
-              colorClass="border-blue-200"
-            />
+            <ResultSection title="Applied / Acknowledgments" icon={<EnvelopeSimple className="h-5 w-5 text-blue-600" />} results={applied} colorClass="border-blue-200" />
           )}
-
-          {/* Other */}
           {other.length > 0 && (
-            <ResultSection
-              title="Other Emails (no clear signal)"
-              icon={<ChatCenteredDots className="h-5 w-5 text-gray-500" />}
-              results={other}
-              colorClass="border-gray-200"
-            />
+            <ResultSection title="Other Emails (no clear signal)" icon={<ChatCenteredDots className="h-5 w-5 text-gray-500" />} results={other} colorClass="border-gray-200" />
           )}
         </>
       )}
@@ -188,43 +170,28 @@ function EmailScan() {
           or the company names in your spreadsheet don't match the email sender names.
         </div>
       )}
-
-    </main>
+    </div>
   )
 }
 
-function ResultSection({
-  title,
-  icon,
-  results,
-  colorClass,
-}: {
-  title: string
-  icon: React.ReactNode
-  results: ScanResult[]
-  colorClass: string
+function ResultSection({ title, icon, results, colorClass }: {
+  title: string; icon: React.ReactNode; results: ScanResult[]; colorClass: string
 }) {
   return (
-    <section className="mb-6">
-      <h2 className="mb-3 flex items-center gap-2 text-lg font-semibold text-[var(--sea-ink)]">
+    <div className="mb-6">
+      <h3 className="mb-3 flex items-center gap-2 text-base font-semibold text-[var(--sea-ink)]">
         {icon} {title} ({results.length})
-      </h2>
+      </h3>
       <div className="space-y-2">
         {results.map((r) => (
           <CompanyEmailResult key={r.company} result={r} colorClass={colorClass} />
         ))}
       </div>
-    </section>
+    </div>
   )
 }
 
-function CompanyEmailResult({
-  result,
-  colorClass,
-}: {
-  result: ScanResult
-  colorClass: string
-}) {
+function CompanyEmailResult({ result, colorClass }: { result: ScanResult; colorClass: string }) {
   const [expanded, setExpanded] = useState(false)
 
   return (

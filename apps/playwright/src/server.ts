@@ -947,6 +947,111 @@ app.post('/screenshot', async (c) => {
   }
 })
 
+// --- Scrape job description text from a URL ---
+
+const JOB_DESCRIPTION_SELECTORS = [
+  // ATS-specific selectors (most reliable)
+  '.posting-page',
+  '[data-testid="job-description"]',
+  '.job-description',
+  '#job-description',
+  '.job-details',
+  '.posting-description',
+  '[class*="jobDescription"]',
+  '[class*="job-posting"]',
+  // Recruitee
+  '.career-page-description',
+  '.custom-css-style-job-widget-description',
+  // Greenhouse
+  '#content',
+  '.job__description',
+  // Lever
+  '.posting-page .content',
+  // Ashby
+  '[class*="ashby-job-posting"]',
+  // Personio
+  '.job-posting',
+  // Join
+  '.job-ad-display',
+  // Generic fallbacks
+  'article',
+  'main',
+  '[role="main"]',
+]
+
+app.post('/scrape-description', async (c) => {
+  const body = await c.req.json<{ url: string }>()
+  const { url } = body
+
+  if (!url) {
+    return c.json({ error: 'url is required' }, 400)
+  }
+
+  const start = Date.now()
+  const b = await getBrowser()
+  const context = await b.newContext({ viewport: { width: 1280, height: 900 } })
+  const page = await context.newPage()
+
+  try {
+    await page.goto(url, {
+      waitUntil: 'domcontentloaded',
+      timeout: 15000,
+    })
+
+    const title = await page.title().catch(() => null)
+
+    // Dismiss cookie consent banners
+    await dismissCookieConsent(page)
+
+    // Wait for dynamic content to render
+    await page.waitForTimeout(1500)
+
+    // Try selectors in priority order, using innerText to preserve line breaks
+    // from block elements (<p>, <div>, <li>, <h2>, etc.)
+    let text: string | null = null
+    for (const selector of JOB_DESCRIPTION_SELECTORS) {
+      try {
+        const content = await page.evaluate((sel) => {
+          const el = document.querySelector(sel)
+          if (!el) return null
+          return (el as HTMLElement).innerText
+        }, selector)
+        if (content && content.trim().length > 100) {
+          text = content.trim()
+          break
+        }
+      } catch { /* selector didn't match */ }
+    }
+
+    // Fallback: body innerText
+    if (!text) {
+      text = await page.evaluate(() => document.body?.innerText ?? null).catch(() => null)
+    }
+
+    // Clean up whitespace: normalize spaces within lines, collapse excessive blank lines
+    if (text) {
+      text = text
+        .split('\n')
+        .map((line) => line.replace(/[ \t]+/g, ' ').trim())
+        .join('\n')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim()
+    }
+
+    return c.json({
+      text: text ?? '',
+      title,
+      url: page.url(),
+      timeMs: Date.now() - start,
+    })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: message }, 500)
+  } finally {
+    await context.close()
+  }
+})
+
 // --- Fill form endpoint: navigate, dismiss cookies, click apply, fill form fields ---
 
 app.post('/fill-form', async (c) => {
@@ -1007,6 +1112,628 @@ app.post('/fill-form', async (c) => {
     return c.json({ error: message }, 500)
   } finally {
     await context.close()
+  }
+})
+
+// --- LinkedIn Job Search ---
+
+import { resolve } from 'node:path'
+import { mkdirSync } from 'node:fs'
+
+const LINKEDIN_DATA_DIR = resolve(process.env.DATA_DIR || './data', 'linkedin-profile')
+mkdirSync(LINKEDIN_DATA_DIR, { recursive: true })
+
+let linkedInContext: BrowserContext | null = null
+let linkedInLastLoginAt = 0 // timestamp of last successful login
+
+async function getLinkedInContext(): Promise<BrowserContext> {
+  if (linkedInContext) {
+    try {
+      // Check if still alive by accessing pages
+      linkedInContext.pages()
+      return linkedInContext
+    } catch {
+      console.log('LinkedIn: Persistent context died, recreating...')
+      linkedInContext = null
+      linkedInLastLoginAt = 0
+    }
+  }
+  console.log('LinkedIn: Creating persistent context at', LINKEDIN_DATA_DIR)
+  linkedInContext = await chromium.launchPersistentContext(LINKEDIN_DATA_DIR, {
+    headless: true,
+    viewport: { width: 1280, height: 900 },
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  })
+  return linkedInContext
+}
+
+// Consider login valid for 30 minutes
+function isLoginRecent(): boolean {
+  return linkedInLastLoginAt > 0 && (Date.now() - linkedInLastLoginAt) < 30 * 60 * 1000
+}
+
+function randomDelay(minMs = 1000, maxMs = 3000): Promise<void> {
+  const ms = minMs + Math.random() * (maxMs - minMs)
+  return new Promise((r) => setTimeout(r, ms))
+}
+
+async function humanType(page: Page, selector: string, text: string): Promise<void> {
+  await page.click(selector)
+  await randomDelay(200, 500)
+  await page.type(selector, text, { delay: 50 + Math.floor(Math.random() * 100) })
+}
+
+async function waitForLinkedInLoad(page: Page): Promise<void> {
+  await page.waitForLoadState('domcontentloaded')
+  await page.waitForLoadState('load')
+  await randomDelay(2000, 4000)
+}
+
+async function isLinkedInLoggedIn(page: Page): Promise<boolean> {
+  try {
+    await page.goto('https://www.linkedin.com/feed/', { waitUntil: 'domcontentloaded', timeout: 15000 })
+    await randomDelay(1000, 2000)
+    const title = await page.title()
+    const url = page.url()
+    console.log('LinkedIn: Login check - URL:', url, 'Title:', title)
+
+    // Direct indicators
+    if (isLoggedInByTitle(title) || url.includes('/feed')) return true
+
+    // Check for global nav (present on all authenticated pages)
+    const hasGlobalNav = await page.evaluate(() => {
+      return !!document.querySelector('#global-nav, .global-nav, [data-test-global-nav]')
+    }).catch(() => false)
+    if (hasGlobalNav) {
+      console.log('LinkedIn: Logged in (global nav detected)')
+      return true
+    }
+
+    // If redirected to login/authwall, definitely not logged in
+    if (url.includes('/login') || url.includes('/authwall')) {
+      console.log('LinkedIn: Not logged in (redirected to login)')
+      return false
+    }
+
+    return false
+  } catch {
+    return false
+  }
+}
+
+type LoginResult =
+  | { ok: true }
+  | { ok: false; reason: 'credentials' | 'captcha' | 'verification_pending' | 'error'; message: string }
+
+function isOnVerificationPage(url: string, content: string): boolean {
+  return (
+    url.includes('/checkpoint/challenge') ||
+    url.includes('/checkpoint/lg/') ||
+    url.includes('/check/manage-account') ||
+    content.includes('two-step verification') ||
+    content.includes('verify it') ||
+    content.includes('Approve from your') ||
+    content.includes('we need to verify') ||
+    content.includes('Quick verification') ||
+    content.includes('Let&#39;s do a quick verification')
+  )
+}
+
+function isLoggedInByTitle(title: string): boolean {
+  const t = title.toLowerCase()
+  // Only "Feed" or "(N) Feed" is a reliable indicator of being logged in
+  // Other pages like job search can load without auth
+  return t.includes('feed') || t.includes('home')
+}
+
+async function linkedInLogin(page: Page, email: string, password: string, waitForVerification = false): Promise<LoginResult> {
+  await page.goto('https://www.linkedin.com/login', { waitUntil: 'domcontentloaded', timeout: 15000 })
+  await waitForLinkedInLoad(page)
+
+  await humanType(page, '#username', email)
+  await randomDelay(500, 1000)
+  await humanType(page, '#password', password)
+  await randomDelay(500, 1000)
+
+  await page.click('button[type=submit]')
+  await page.waitForLoadState('load', { timeout: 15000 })
+  await randomDelay(2000, 4000)
+
+  // Check where we landed after login
+  const title = await page.title()
+  const currentUrl = page.url()
+  console.log('LinkedIn login: After submit - URL:', currentUrl, 'Title:', title)
+
+  // Check if we landed on a logged-in page (feed, home, or any authenticated page)
+  if (isLoggedInByTitle(title) || currentUrl.includes('/feed') || currentUrl.includes('/mynetwork') || currentUrl.includes('/in/')) {
+    console.log('LinkedIn login: Success (no 2FA needed)')
+    return { ok: true }
+  }
+
+  // For new accounts, LinkedIn may redirect to onboarding/welcome pages
+  if (currentUrl.includes('/onboarding') || currentUrl.includes('/start') || currentUrl.includes('/welcome')) {
+    console.log('LinkedIn login: Success (redirected to onboarding)')
+    return { ok: true }
+  }
+
+  // Check for verification / checkpoint page
+  const content = await page.content()
+
+  if (isOnVerificationPage(currentUrl, content)) {
+    console.log('LinkedIn login: Verification/2FA required, waitForVerification:', waitForVerification)
+    if (!waitForVerification) {
+      return {
+        ok: false,
+        reason: 'verification_pending',
+        message: 'LinkedIn sent a push notification to your phone. Approve it, then click "I Approved It".',
+      }
+    }
+
+    // Poll: wait up to 60 seconds for user to approve on their phone
+    console.log('LinkedIn: Waiting for push notification approval (up to 60s)...')
+    const deadline = Date.now() + 60000
+    while (Date.now() < deadline) {
+      await randomDelay(3000, 5000)
+
+      const nowUrl = page.url()
+      const nowTitle = await page.title()
+
+      // Check if we've been redirected to the feed
+      if (isLoggedInByTitle(nowTitle) || nowUrl.includes('/feed')) {
+        console.log('LinkedIn: Verification approved!')
+        return { ok: true }
+      }
+
+      // Still on checkpoint page, keep waiting
+      if (!isOnVerificationPage(nowUrl, await page.content())) {
+        // We left the checkpoint but didn't reach feed — could be another step
+        break
+      }
+    }
+
+    // Timed out or navigated somewhere unexpected
+    const finalTitle = await page.title()
+    if (isLoggedInByTitle(finalTitle)) {
+      return { ok: true }
+    }
+    return {
+      ok: false,
+      reason: 'verification_pending',
+      message: 'Verification timed out. Approve the push notification on your LinkedIn app and try again.',
+    }
+  }
+
+  // Check for CAPTCHA
+  const hasCaptchaIndicator = await page.evaluate(() => {
+    return !!document.querySelector('iframe[src*="captcha"], iframe[src*="recaptcha"], #captcha-challenge')
+  }).catch(() => false)
+  if (hasCaptchaIndicator || currentUrl.includes('challenge/recaptcha')) {
+    console.log('LinkedIn login: CAPTCHA detected')
+    return { ok: false, reason: 'captcha', message: 'LinkedIn requires a CAPTCHA. Try running the Playwright server with headless=false.' }
+  }
+
+  // Check if maybe we ARE logged in but landed on an unexpected page
+  const hasGlobalNav = await page.evaluate(() => {
+    return !!document.querySelector('#global-nav, .global-nav, [data-test-global-nav]')
+  }).catch(() => false)
+  if (hasGlobalNav) {
+    console.log('LinkedIn login: Success (global nav detected on unexpected page:', currentUrl, ')')
+    return { ok: true }
+  }
+
+  console.log('LinkedIn login: Failed - no success indicators found. URL:', currentUrl, 'Title:', title)
+  return { ok: false, reason: 'credentials', message: 'Login failed. Check your credentials.' }
+}
+
+app.post('/linkedin-search', async (c) => {
+  const linkedInEmail = process.env.LINKEDIN_EMAIL
+  const linkedInPassword = process.env.LINKEDIN_PASSWORD
+
+  if (!linkedInEmail || !linkedInPassword) {
+    return c.json({
+      status: 'auth_error',
+      message: 'LINKEDIN_EMAIL and LINKEDIN_PASSWORD environment variables must be set on the Playwright server.',
+    }, 400)
+  }
+
+  const body = await c.req.json<{ keywords: string; location: string; skills: string[]; maxResults?: number }>()
+  const { keywords, location, skills, maxResults: requestedMax } = body
+
+  if (!keywords?.trim()) {
+    return c.json({ status: 'error', message: 'keywords is required' }, 400)
+  }
+
+  let page: Page | null = null
+
+  try {
+    const ctx = await getLinkedInContext()
+    page = await ctx.newPage()
+
+    // Skip login check if we logged in recently (avoids extra /feed/ navigation)
+    if (isLoginRecent()) {
+      console.log('LinkedIn: Login still valid (last login', Math.round((Date.now() - linkedInLastLoginAt) / 1000), 'seconds ago)')
+    } else {
+      console.log('LinkedIn: Checking login status...')
+      const loggedIn = await isLinkedInLoggedIn(page)
+      if (!loggedIn) {
+        console.log('LinkedIn: Not logged in, attempting login...')
+        const loginResult = await linkedInLogin(page, linkedInEmail, linkedInPassword)
+        if (!loginResult.ok) {
+          console.log('LinkedIn: Login failed -', loginResult.reason, loginResult.message)
+          const statusMap = { credentials: 'auth_error', captcha: 'captcha_blocked', verification_pending: 'verification_pending', error: 'error' } as const
+          return c.json({ status: statusMap[loginResult.reason], message: loginResult.message }, loginResult.reason === 'credentials' ? 401 : 403)
+        }
+        console.log('LinkedIn: Login successful')
+        linkedInLastLoginAt = Date.now()
+      } else {
+        console.log('LinkedIn: Already logged in')
+        linkedInLastLoginAt = Date.now()
+      }
+    }
+
+    // Navigate to job search
+    const searchUrl = `https://www.linkedin.com/jobs/search/?keywords=${encodeURIComponent(keywords.trim())}&location=${encodeURIComponent((location || '').trim())}&f_TPR=r86400&sortBy=DD`
+    console.log('LinkedIn: Navigating to search URL:', searchUrl)
+    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 })
+    await waitForLinkedInLoad(page)
+
+    // Check if we got redirected to login or verification page
+    const postNavUrl = page.url()
+    const postNavTitle = await page.title()
+    console.log('LinkedIn: After navigation - URL:', postNavUrl, 'Title:', postNavTitle)
+
+    // Check if we're on the public (unauthenticated) version of the search page
+    // The authenticated page has nav elements like global-nav, the public one has jobs-search__results-list
+    const isAuthenticatedPage = await page.evaluate(() => {
+      return !!document.querySelector('#global-nav, .global-nav, [data-test-global-nav]')
+    }).catch(() => false)
+    console.log('LinkedIn: Authenticated page:', isAuthenticatedPage)
+
+    if (!isAuthenticatedPage && !postNavUrl.includes('/login') && !postNavUrl.includes('/authwall')) {
+      // We're on the public page — session didn't carry over. Try logging in.
+      console.log('LinkedIn: On public/unauthenticated page, need to login...')
+      linkedInLastLoginAt = 0
+      const loginResult = await linkedInLogin(page, linkedInEmail, linkedInPassword)
+      if (!loginResult.ok) {
+        console.log('LinkedIn: Login failed -', loginResult.reason, '. Falling back to public page results.')
+        // Fall through — we can still extract from the public page
+      } else {
+        console.log('LinkedIn: Login successful, retrying search...')
+        linkedInLastLoginAt = Date.now()
+        await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 })
+        await waitForLinkedInLoad(page)
+      }
+    } else if (postNavUrl.includes('/login') || postNavUrl.includes('/authwall')) {
+      console.log('LinkedIn: Session expired, redirected to login. Attempting re-login...')
+      linkedInLastLoginAt = 0
+      const loginResult = await linkedInLogin(page, linkedInEmail, linkedInPassword)
+      if (!loginResult.ok) {
+        console.log('LinkedIn: Re-login failed -', loginResult.reason)
+        const statusMap = { credentials: 'auth_error', captcha: 'captcha_blocked', verification_pending: 'verification_pending', error: 'error' } as const
+        return c.json({ status: statusMap[loginResult.reason], message: loginResult.message }, loginResult.reason === 'credentials' ? 401 : 403)
+      }
+      console.log('LinkedIn: Re-login successful, retrying search...')
+      linkedInLastLoginAt = Date.now()
+      await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 })
+      await waitForLinkedInLoad(page)
+    }
+
+    if (isOnVerificationPage(page.url(), await page.content())) {
+      console.log('LinkedIn: Hit verification page during search')
+      linkedInLastLoginAt = 0
+      const ss = await page.screenshot({ type: 'png', fullPage: false }).then((b) => b.toString('base64')).catch(() => '')
+      return c.json({ status: 'captcha_blocked', message: 'LinkedIn requires security verification. Complete the login test first, then search.', screenshot: ss }, 403)
+    }
+
+    // Wait for job list to appear — try multiple selectors since LinkedIn updates their DOM
+    const JOB_CARD_SELECTORS = [
+      // Public/unauthenticated search page
+      'ul.jobs-search__results-list > li',
+      '.base-card',
+      // Authenticated search page
+      'div[data-job-id]',
+      'li[data-occludable-job-id]',
+      '.job-card-container',
+      '.jobs-search-results__list-item',
+      '[data-view-name="job-card"]',
+      '.scaffold-layout__list-item',
+    ]
+    console.log('LinkedIn: Waiting for job cards to load...')
+    let matchedCardSelector: string | null = null
+    try {
+      // Race all selectors — whichever appears first wins
+      const selectorRace = JOB_CARD_SELECTORS.map((sel) =>
+        page!.waitForSelector(sel, { timeout: 10000 }).then(() => sel)
+      )
+      matchedCardSelector = await Promise.any(selectorRace)
+      console.log('LinkedIn: Job cards found with selector:', matchedCardSelector)
+    } catch {
+      // None of the selectors matched — dump page structure for debugging
+      const currentUrl = page!.url()
+      const debugInfo = await page!.evaluate(() => {
+        // Check for actual captcha/challenge elements
+        const hasCaptchaFrame = !!document.querySelector('iframe[src*="captcha"], iframe[src*="recaptcha"], #captcha-challenge')
+        const hasCheckpoint = window.location.href.includes('/checkpoint/')
+        // Find what list-like containers exist
+        const lists = Array.from(document.querySelectorAll('[class*="job"], [class*="search-result"], [class*="scaffold"]'))
+          .slice(0, 10)
+          .map((el) => ({ tag: el.tagName, class: el.className.toString().slice(0, 100), children: el.children.length }))
+        return { hasCaptchaFrame, hasCheckpoint, lists, title: document.title }
+      }).catch(() => ({ hasCaptchaFrame: false, hasCheckpoint: false, lists: [], title: '' }))
+
+      console.log('LinkedIn: No job cards found. URL:', currentUrl)
+      console.log('LinkedIn: Debug info:', JSON.stringify(debugInfo, null, 2))
+
+      const ss = await page!.screenshot({ type: 'png', fullPage: false }).then((b) => b.toString('base64')).catch(() => '')
+      if (debugInfo.hasCaptchaFrame || debugInfo.hasCheckpoint) {
+        console.log('LinkedIn: Actual captcha/checkpoint detected')
+        return c.json({ status: 'captcha_blocked', message: 'LinkedIn is showing a captcha. Try again later.', screenshot: ss }, 403)
+      }
+      console.log('LinkedIn: No jobs matched the search criteria (or selectors need updating)')
+      return c.json({ status: 'ok', results: [], screenshot: ss })
+    }
+
+    // Scroll to load more results
+    for (let i = 0; i < 3; i++) {
+      await page.evaluate(() => {
+        const list = document.querySelector('.jobs-search__results-list') ||
+          document.querySelector('.jobs-search-results-list') ||
+          document.querySelector('.scaffold-layout__list')
+        if (list) {
+          list.scrollTop += 400
+        } else {
+          // Public page: scroll the window instead
+          window.scrollBy(0, 400)
+        }
+      })
+      await randomDelay(800, 1500)
+    }
+
+    // Extract job cards (max 5) using whichever selector matched
+    const cards = await page.$$(matchedCardSelector!)
+    const maxResults = Math.min(cards.length, requestedMax || 5)
+    console.log(`LinkedIn: Found ${cards.length} job cards, extracting up to ${maxResults}`)
+
+    const results: Array<{
+      title: string
+      company: string
+      url: string
+      externalUrl: string
+      location: string
+      matchedSkills: string[]
+      missingSkills: string[]
+      description: string
+    }> = []
+
+    for (let i = 0; i < maxResults; i++) {
+      const card = cards[i]
+      if (!card) continue
+
+      try {
+        // Extract basic info from the card — try multiple selector strategies
+        const cardInfo = await card.evaluate((el) => {
+          // Find the main link (title) — public page uses .base-card__full-link or .base-search-card--link
+          const link = el.querySelector('a[href*="/jobs/view/"]') ||
+            el.querySelector('a.base-card__full-link') ||
+            el.querySelector('a.job-card-container__link') ||
+            el.querySelector('a.job-card-list__title') ||
+            el.querySelector('[class*="job-card"] a') ||
+            el.querySelector('a[href*="/jobs/"]')
+          // Title text — public page has it in h3.base-search-card__title
+          const titleEl = el.querySelector('h3.base-search-card__title') ||
+            el.querySelector('[class*="job-search-card__title"]') ||
+            link
+          const title = titleEl?.textContent?.trim() || ''
+          const href = link?.getAttribute('href') || ''
+
+          // Company name — public page uses h4.base-search-card__subtitle or .job-search-card__company-name
+          const companyEl = el.querySelector('h4.base-search-card__subtitle') ||
+            el.querySelector('.base-search-card__subtitle') ||
+            el.querySelector('[class*="job-search-card__company"]') ||
+            el.querySelector('.artdeco-entity-lockup__subtitle') ||
+            el.querySelector('[class*="job-card-container__primary-description"]') ||
+            el.querySelector('[class*="company"]')
+          const company = companyEl?.textContent?.trim() || ''
+
+          // Location — public page uses .job-search-card__location
+          const locEl = el.querySelector('.job-search-card__location') ||
+            el.querySelector('[class*="job-search-card__location"]') ||
+            el.querySelector('.artdeco-entity-lockup__caption') ||
+            el.querySelector('[class*="job-card-container__metadata-item"]')
+          const location = locEl?.textContent?.trim() || ''
+
+          return { title, href, company, location }
+        }).catch(() => ({ title: '', href: '', company: '', location: '' }))
+
+        const { title, company, location: jobLocation } = cardInfo
+        const href = cardInfo.href
+
+        if (!title || !href) continue
+
+        const fullUrl = href.startsWith('http') ? href.split('?')[0] : `https://www.linkedin.com${href.split('?')[0]}`
+
+        // Try to get description — method depends on whether we're on public or authenticated page
+        let description = ''
+        const isPublicPage = matchedCardSelector === 'ul.jobs-search__results-list > li' || matchedCardSelector === '.base-card'
+
+        if (isPublicPage) {
+          // Public page: description snippet is in the card itself or we skip it
+          description = await card.evaluate((el) => {
+            const desc = el.querySelector('.base-search-card__metadata, .job-search-card__snippet, [class*="snippet"]')
+            return desc?.textContent?.trim() || ''
+          }).catch(() => '')
+        } else {
+          // Authenticated page: click the card to load the detail pane
+          await card.click()
+          await randomDelay(1500, 2500)
+          try {
+            await page.waitForSelector('.jobs-description, .jobs-box__html-content, [class*="jobs-description"]', { timeout: 5000 })
+            description = await page.$eval(
+              '.jobs-description, .jobs-box__html-content, [class*="jobs-description"]',
+              (el) => el.textContent?.trim() || '',
+            )
+          } catch {
+            // Description pane didn't load, continue without it
+          }
+        }
+
+        // Extract external apply URL from the detail pane
+        let externalUrl = ''
+        if (!isPublicPage) {
+          try {
+            // Look for the apply button — LinkedIn uses different variants
+            const applyBtn = await page.$([
+              'a.jobs-apply-button',
+              'a[href*="externalApply"]',
+              'a[data-job-id][href*="http"]',
+              '.jobs-apply-button--top-card a',
+              '.jobs-s-apply button',
+            ].join(', '))
+            if (applyBtn) {
+              const applyHref = await applyBtn.getAttribute('href')
+              if (applyHref && applyHref.startsWith('http') && !applyHref.includes('linkedin.com')) {
+                externalUrl = applyHref.split('?')[0]
+              }
+            }
+            // Fallback: look for external link in the job details section
+            if (!externalUrl) {
+              externalUrl = await page.evaluate(() => {
+                // Check for "Apply on company website" link pattern
+                const links = document.querySelectorAll('.jobs-apply-button, a[href*="externalApply"], .jobs-s-apply a, a.apply-button')
+                for (const link of links) {
+                  const href = link.getAttribute('href')
+                  if (href && href.startsWith('http') && !href.includes('linkedin.com')) {
+                    return href.split('?')[0]
+                  }
+                }
+                // Check for redirect URL in onclick or data attributes
+                const applySection = document.querySelector('.jobs-apply-button--top-card, .jobs-s-apply')
+                if (applySection) {
+                  const allLinks = applySection.querySelectorAll('a[href]')
+                  for (const a of allLinks) {
+                    const href = a.getAttribute('href') || ''
+                    if (href.includes('externalApply') || (href.startsWith('http') && !href.includes('linkedin.com'))) {
+                      // LinkedIn wraps external URLs — try to extract from redirect
+                      const urlMatch = href.match(/url=([^&]+)/)
+                      if (urlMatch) return decodeURIComponent(urlMatch[1]).split('?')[0]
+                      if (!href.includes('linkedin.com')) return href.split('?')[0]
+                    }
+                  }
+                }
+                return ''
+              }).catch(() => '')
+            }
+          } catch {
+            // External URL extraction failed, continue without it
+          }
+        }
+        if (externalUrl) {
+          console.log(`LinkedIn: Card ${i + 1}/${maxResults}: External URL: ${externalUrl}`)
+        }
+
+        // Skills matching
+        const combined = `${title} ${description}`.toLowerCase()
+        const matchedSkills: string[] = []
+        const missingSkills: string[] = []
+        for (const skill of skills) {
+          const s = skill.trim()
+          if (!s) continue
+          if (combined.includes(s.toLowerCase())) {
+            matchedSkills.push(s)
+          } else {
+            missingSkills.push(s)
+          }
+        }
+
+        console.log(`LinkedIn: Card ${i + 1}/${maxResults}: "${title}" at ${company} (${matchedSkills.length} skill matches)`)
+        results.push({
+          title,
+          company,
+          url: fullUrl,
+          externalUrl,
+          location: jobLocation,
+          matchedSkills,
+          missingSkills,
+          description: description.slice(0, 500),
+        })
+      } catch (err) {
+        console.error(`LinkedIn: Error extracting card ${i}:`, err)
+        continue
+      }
+    }
+
+    // Take a debug screenshot of the search results page
+    let screenshot = ''
+    try {
+      const buf = await page.screenshot({ type: 'png', fullPage: false })
+      screenshot = buf.toString('base64')
+      console.log('LinkedIn: Screenshot captured')
+    } catch (err) {
+      console.log('LinkedIn: Screenshot failed:', err)
+    }
+
+    console.log(`LinkedIn: Search complete, returning ${results.length} results`)
+    return c.json({ status: 'ok', results, screenshot })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('LinkedIn search error:', message)
+    return c.json({ status: 'error', message }, 500)
+  } finally {
+    if (page) await page.close().catch(() => {})
+  }
+})
+
+app.post('/linkedin-login-test', async (c) => {
+  const linkedInEmail = process.env.LINKEDIN_EMAIL
+  const linkedInPassword = process.env.LINKEDIN_PASSWORD
+
+  if (!linkedInEmail || !linkedInPassword) {
+    return c.json({
+      status: 'not_configured',
+      message: 'LINKEDIN_EMAIL and LINKEDIN_PASSWORD environment variables are not set.',
+    })
+  }
+
+  // Optional: { waitForVerification: true } to poll for push notification approval
+  const body = await c.req.json<{ waitForVerification?: boolean }>().catch(() => ({ waitForVerification: false }))
+  const waitForVerification = body.waitForVerification ?? false
+
+  let page: Page | null = null
+
+  try {
+    const ctx = await getLinkedInContext()
+    page = await ctx.newPage()
+
+    // Check if already logged in
+    const loggedIn = await isLinkedInLoggedIn(page)
+    if (loggedIn) {
+      linkedInLastLoginAt = Date.now()
+      console.log('LinkedIn test: Already logged in')
+      return c.json({ status: 'connected', message: 'Already logged in to LinkedIn.' })
+    }
+
+    // Attempt login
+    console.log('LinkedIn test: Attempting login...')
+    const loginResult = await linkedInLogin(page, linkedInEmail, linkedInPassword, waitForVerification)
+    if (loginResult.ok) {
+      linkedInLastLoginAt = Date.now()
+      console.log('LinkedIn test: Login successful')
+      return c.json({ status: 'connected', message: 'Successfully logged in to LinkedIn.' })
+    }
+    console.log('LinkedIn test: Login failed -', loginResult.reason, loginResult.message)
+
+    const statusMap = {
+      credentials: 'failed',
+      captcha: 'captcha_blocked',
+      verification_pending: 'verification_pending',
+      error: 'error',
+    } as const
+    return c.json({ status: statusMap[loginResult.reason], message: loginResult.message })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ status: 'error', message }, 500)
+  } finally {
+    if (page) await page.close().catch(() => {})
   }
 })
 

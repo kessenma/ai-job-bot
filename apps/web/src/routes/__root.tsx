@@ -2,6 +2,7 @@ import { HeadContent, Scripts, Outlet, createRootRoute } from '@tanstack/react-r
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
 import Header from '../components/Header'
+import { ScanProvider } from '#/hooks/useScanContext.tsx'
 import { getAuthState } from '#/lib/gmail.api.ts'
 
 import appCss from '../styles.css?url'
@@ -39,10 +40,10 @@ export const Route = createRootRoute({
 
 function RootComponent() {
   return (
-    <>
+    <ScanProvider>
       <Header />
       <Outlet />
-    </>
+    </ScanProvider>
   )
 }
 

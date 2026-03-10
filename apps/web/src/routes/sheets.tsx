@@ -6,10 +6,11 @@ import {
 import { getJobs } from '#/lib/jobs.api.ts'
 import { getSheetsStatus, getSheetDebug } from '#/lib/sheets.api.ts'
 import { probeUrls } from '#/lib/playwright.api.ts'
-import type { JobLead } from '#/lib/types.ts'
 import type { ProbeResult, ProbeStatus } from '#/lib/types.ts'
 import { StatCard, StatusBadge, ErrorAlert } from '#/components/ui/index.ts'
 import { requireAuth } from '#/lib/auth-guard.ts'
+import { MobileSheetsCards } from '#/components/MobileSheetsCards.tsx'
+import { useIsMobile } from '#/hooks/use-mobile.ts'
 
 export const Route = createFileRoute('/sheets')({
   beforeLoad: requireAuth,
@@ -36,6 +37,7 @@ function Sheets() {
   } | null>(null)
   const [showDebug, setShowDebug] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const isMobile = useIsMobile()
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true)
@@ -250,69 +252,73 @@ function Sheets() {
         </div>
       )}
 
-      {/* Jobs table */}
+      {/* Jobs table / mobile cards */}
       {jobs.length > 0 && (
-        <section className="island-shell overflow-hidden rounded-2xl">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr className="border-b border-[var(--line)] bg-[var(--surface)]">
-                  <th className="px-4 py-3 text-xs font-semibold text-[var(--sea-ink-soft)]">Company</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-[var(--sea-ink-soft)]">Role</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-[var(--sea-ink-soft)]">Location</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-[var(--sea-ink-soft)]">Status</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-[var(--sea-ink-soft)]">ATS</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-[var(--sea-ink-soft)]">Probe</th>
-                  <th className="px-4 py-3 text-xs font-semibold text-[var(--sea-ink-soft)]">Captcha</th>
-                </tr>
-              </thead>
-              <tbody>
-                {jobs.map((job, i) => (
-                  <tr key={i} className="border-b border-[var(--line)] last:border-0">
-                    <td className="px-4 py-3 font-medium text-[var(--sea-ink)]">
-                      {job.company || '—'}
-                    </td>
-                    <td className="px-4 py-3 text-[var(--sea-ink)]">
-                      {job.jobUrl ? (
-                        <a
-                          href={job.jobUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-[var(--lagoon-deep)] hover:underline"
-                        >
-                          {job.role || 'View'}
-                        </a>
-                      ) : (
-                        job.role || '—'
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-[var(--sea-ink-soft)]">{job.location || '—'}</td>
-                    <td className="px-4 py-3">
-                      <StatusBadge status={job.applicationStatus} />
-                    </td>
-                    <td className="px-4 py-3 text-xs text-[var(--sea-ink-soft)]">{job.atsPlatform}</td>
-                    <td className="px-4 py-3">
-                      {job.jobUrl && probeResults.has(job.jobUrl) ? (
-                        <ProbeStatusBadge status={probeResults.get(job.jobUrl)!.status} />
-                      ) : '—'}
-                    </td>
-                    <td className="px-4 py-3 text-xs">
-                      {job.jobUrl && probeResults.has(job.jobUrl) ? (
-                        probeResults.get(job.jobUrl)!.hasCaptcha ? (
-                          <span className="flex items-center gap-1 text-amber-600">
-                            <Shield className="h-3 w-3" /> Yes
-                          </span>
-                        ) : (
-                          <span className="text-green-600">No</span>
-                        )
-                      ) : '—'}
-                    </td>
+        isMobile ? (
+          <MobileSheetsCards jobs={jobs} probeResults={probeResults} />
+        ) : (
+          <section className="island-shell overflow-hidden rounded-2xl">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="border-b border-[var(--line)] bg-[var(--surface)]">
+                    <th className="px-4 py-3 text-xs font-semibold text-[var(--sea-ink-soft)]">Company</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-[var(--sea-ink-soft)]">Role</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-[var(--sea-ink-soft)]">Location</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-[var(--sea-ink-soft)]">Status</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-[var(--sea-ink-soft)]">ATS</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-[var(--sea-ink-soft)]">Probe</th>
+                    <th className="px-4 py-3 text-xs font-semibold text-[var(--sea-ink-soft)]">Captcha</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
+                </thead>
+                <tbody>
+                  {jobs.map((job, i) => (
+                    <tr key={i} className="border-b border-[var(--line)] last:border-0">
+                      <td className="px-4 py-3 font-medium text-[var(--sea-ink)]">
+                        {job.company || '—'}
+                      </td>
+                      <td className="px-4 py-3 text-[var(--sea-ink)]">
+                        {job.jobUrl ? (
+                          <a
+                            href={job.jobUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-[var(--lagoon-deep)] hover:underline"
+                          >
+                            {job.role || 'View'}
+                          </a>
+                        ) : (
+                          job.role || '—'
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-[var(--sea-ink-soft)]">{job.location || '—'}</td>
+                      <td className="px-4 py-3">
+                        <StatusBadge status={job.applicationStatus} />
+                      </td>
+                      <td className="px-4 py-3 text-xs text-[var(--sea-ink-soft)]">{job.atsPlatform}</td>
+                      <td className="px-4 py-3">
+                        {job.jobUrl && probeResults.has(job.jobUrl) ? (
+                          <ProbeStatusBadge status={probeResults.get(job.jobUrl)!.status} />
+                        ) : '—'}
+                      </td>
+                      <td className="px-4 py-3 text-xs">
+                        {job.jobUrl && probeResults.has(job.jobUrl) ? (
+                          probeResults.get(job.jobUrl)!.hasCaptcha ? (
+                            <span className="flex items-center gap-1 text-amber-600">
+                              <Shield className="h-3 w-3" /> Yes
+                            </span>
+                          ) : (
+                            <span className="text-green-600">No</span>
+                          )
+                        ) : '—'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )
       )}
 
       {jobs.length === 0 && sheetsStatus.configured && (

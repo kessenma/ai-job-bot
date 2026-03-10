@@ -51,6 +51,28 @@ export interface ApplyProfile {
   coverLetterDefault: string
 }
 
+export interface JobDescription {
+  jobUrl: string
+  raw: string
+  skills: string | null
+  companyInfo: string | null
+  pay: string | null
+  other: string | null
+  language: 'en' | 'de' | 'unknown'
+  scrapedAt: string
+}
+
+export interface LinkedInSearchResult {
+  title: string
+  company: string
+  url: string
+  externalUrl: string
+  location: string
+  matchedSkills: string[]
+  missingSkills: string[]
+  description: string
+}
+
 export type ProbeStatus = 'loaded' | 'blocked' | 'expired' | 'error'
 
 export interface ProbeResult {

@@ -1,21 +1,31 @@
-import { createFileRoute, Link } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { useState, useCallback } from 'react'
 import {
   BookOpen, CaretDown, CaretUp, ArrowSquareOut, Copy, CheckCircle,
   Table, EnvelopeSimple, Key, Link as LinkIcon, LinkBreak, CircleNotch,
+  Tray, FileText, MagnifyingGlass,
 } from '@phosphor-icons/react'
-import { getGmailStatus } from '#/lib/gmail.api.ts'
+import { getGmailStatus, getSavedEmails } from '#/lib/gmail.api.ts'
 import { getSheetsStatus, setSheetsUrl, removeSheetsUrl } from '#/lib/sheets.api.ts'
+import { getJobs } from '#/lib/jobs.api.ts'
+import { getJobDescriptions } from '#/lib/playwright.api.ts'
 import { requireAuth } from '#/lib/auth-guard.ts'
+import { EmailScanner } from '#/components/scanners/EmailScanner.tsx'
+import { DescriptionScanner } from '#/components/scanners/DescriptionScanner.tsx'
+import { LinkedInScanner } from '#/components/scanners/LinkedInScanner.tsx'
+import type { JobDescription } from '#/lib/types.ts'
 
 export const Route = createFileRoute('/setup')({
   beforeLoad: requireAuth,
   loader: async () => {
-    const [gmailStatus, sheetsStatus] = await Promise.all([
+    const [gmailStatus, sheetsStatus, jobs, savedEmails, jobDescriptions] = await Promise.all([
       getGmailStatus(),
       getSheetsStatus(),
+      getJobs(),
+      getSavedEmails(),
+      getJobDescriptions(),
     ])
-    return { gmailStatus, sheetsStatus }
+    return { gmailStatus, sheetsStatus, jobs, savedEmails, jobDescriptions }
   },
   component: Setup,
 })
@@ -164,80 +174,154 @@ const SHEETS_STEPS: Step[] = [
 // --- Components ---
 
 function Setup() {
-  const { gmailStatus, sheetsStatus } = Route.useLoaderData()
+  const { gmailStatus, sheetsStatus, jobs, savedEmails, jobDescriptions: initialDescMap } = Route.useLoaderData()
+  const isFullyConnected = gmailStatus.connected && sheetsStatus.configured
+  const [guideOpen, setGuideOpen] = useState(!isFullyConnected)
+  const [descMap, setDescMap] = useState<Record<string, JobDescription>>(initialDescMap)
 
   return (
     <main className="page-wrap px-4 pb-8 pt-14">
       <h1 className="mb-2 flex items-center gap-2 text-2xl font-bold text-[var(--sea-ink)]">
         <BookOpen className="h-6 w-6 text-[var(--lagoon)]" />
-        Setup Guide
+        Setup & Scanners
       </h1>
       <p className="mb-6 text-sm text-[var(--sea-ink-soft)]">
-        Connect your Google account to scan Gmail for emails and read job data from Google Sheets.
+        Configure your Google integrations, scan emails, and scrape job descriptions.
       </p>
 
-      {/* Section 1: OAuth Credentials */}
-      <SetupSection
-        icon={<Key className="h-5 w-5 text-[var(--lagoon)]" />}
-        title="1. Google OAuth Credentials"
-        subtitle="Create a GCP project and OAuth client to authenticate with Google APIs."
-        status={gmailStatus.configured ? 'done' : 'pending'}
-        statusText={gmailStatus.configured ? 'Configured' : 'Not configured'}
-        steps={OAUTH_STEPS}
-      />
+      {/* Collapsible Setup Guide */}
+      <section className="island-shell rounded-2xl overflow-hidden">
+        <button
+          onClick={() => setGuideOpen(!guideOpen)}
+          className="flex w-full items-center justify-between p-6 text-left"
+        >
+          <div className="flex items-center gap-3">
+            <BookOpen className="h-5 w-5 text-[var(--lagoon)]" />
+            <div>
+              <h2 className="text-lg font-semibold text-[var(--sea-ink)]">Setup Guide</h2>
+              <p className="text-sm text-[var(--sea-ink-soft)]">
+                Google OAuth, Gmail, and Sheets configuration
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className={`rounded-full px-3 py-1 text-xs font-medium ${
+              isFullyConnected
+                ? 'bg-green-500/10 text-green-700'
+                : 'bg-amber-500/10 text-amber-700'
+            }`}>
+              {isFullyConnected ? 'Complete' : 'Incomplete'}
+            </span>
+            {guideOpen ? (
+              <CaretUp className="h-4 w-4 text-[var(--sea-ink-soft)]" />
+            ) : (
+              <CaretDown className="h-4 w-4 text-[var(--sea-ink-soft)]" />
+            )}
+          </div>
+        </button>
 
-      {/* Env file */}
-      <section className="mt-4 island-shell rounded-2xl p-6">
-        <h3 className="mb-3 text-base font-semibold text-[var(--sea-ink)]">
-          Add credentials to your .env file
-        </h3>
-        <p className="mb-3 text-sm text-[var(--sea-ink-soft)]">
-          Create a <code>.env</code> file in the <code>app/</code> directory (copy from{' '}
-          <code>.env.example</code>) and paste your credentials:
-        </p>
-        <EnvBlock />
-        <p className="mt-3 text-sm text-[var(--sea-ink-soft)]">
-          After saving, restart the dev server.
-        </p>
+        {guideOpen && (
+          <div className="border-t border-[var(--line)] p-6 pt-4 space-y-8">
+            {/* Section 1: OAuth Credentials */}
+            <SetupSection
+              icon={<Key className="h-5 w-5 text-[var(--lagoon)]" />}
+              title="1. Google OAuth Credentials"
+              subtitle="Create a GCP project and OAuth client to authenticate with Google APIs."
+              status={gmailStatus.configured ? 'done' : 'pending'}
+              statusText={gmailStatus.configured ? 'Configured' : 'Not configured'}
+              steps={OAUTH_STEPS}
+            />
+
+            {/* Env file */}
+            <div className="island-shell rounded-2xl p-6">
+              <h3 className="mb-3 text-base font-semibold text-[var(--sea-ink)]">
+                Add credentials to your .env file
+              </h3>
+              <p className="mb-3 text-sm text-[var(--sea-ink-soft)]">
+                Create a <code>.env</code> file in the <code>app/</code> directory (copy from{' '}
+                <code>.env.example</code>) and paste your credentials:
+              </p>
+              <EnvBlock />
+              <p className="mt-3 text-sm text-[var(--sea-ink-soft)]">
+                After saving, restart the dev server.
+              </p>
+            </div>
+
+            {/* Section 2: Gmail Connection */}
+            <SetupSection
+              icon={<EnvelopeSimple className="h-5 w-5 text-[var(--lagoon)]" />}
+              title="2. Connect Gmail"
+              subtitle="Add yourself as a test user and connect your Gmail account for email scanning."
+              status={gmailStatus.connected ? 'done' : gmailStatus.configured ? 'ready' : 'pending'}
+              statusText={
+                gmailStatus.connected
+                  ? 'Connected'
+                  : gmailStatus.configured
+                    ? 'Ready to connect'
+                    : 'Needs OAuth credentials first'
+              }
+              steps={GMAIL_STEPS}
+            />
+
+            {/* Section 3: Google Sheets */}
+            <SetupSection
+              icon={<Table className="h-5 w-5 text-[var(--lagoon)]" />}
+              title="3. Google Sheets"
+              subtitle="Enable the Sheets API and connect your job tracking spreadsheet."
+              status={sheetsStatus.configured ? 'done' : 'pending'}
+              statusText={sheetsStatus.configured ? 'Sheet connected' : 'No sheet configured'}
+              steps={SHEETS_STEPS}
+            />
+
+            {/* Sheet URL input */}
+            <SheetUrlConfig
+              initialUrl={sheetsStatus.sheetUrl}
+              authenticated={sheetsStatus.authenticated}
+            />
+          </div>
+        )}
       </section>
 
-      {/* Section 2: Gmail Connection */}
-      <div className="mt-8">
-        <SetupSection
-          icon={<EnvelopeSimple className="h-5 w-5 text-[var(--lagoon)]" />}
-          title="2. Connect Gmail"
-          subtitle="Add yourself as a test user and connect your Gmail account for email scanning."
-          status={gmailStatus.connected ? 'done' : gmailStatus.configured ? 'ready' : 'pending'}
-          statusText={
-            gmailStatus.connected
-              ? 'Connected'
-              : gmailStatus.configured
-                ? 'Ready to connect'
-                : 'Needs OAuth credentials first'
-          }
-          steps={GMAIL_STEPS}
-        />
-      </div>
+      {/* Email Scanner */}
+      <section className="mt-8">
+        <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-[var(--sea-ink)]">
+          <Tray className="h-5 w-5 text-[var(--lagoon)]" />
+          Email Scanner
+        </h2>
+        <p className="mb-4 text-sm text-[var(--sea-ink-soft)]">
+          Scan your Gmail for rejection and interview emails to auto-update job statuses.
+        </p>
+        <EmailScanner jobs={jobs} gmailStatus={gmailStatus} savedEmails={savedEmails} />
+      </section>
 
-      {/* Section 3: Google Sheets */}
-      <div className="mt-8">
-        <SetupSection
-          icon={<Table className="h-5 w-5 text-[var(--lagoon)]" />}
-          title="3. Google Sheets"
-          subtitle="Enable the Sheets API and connect your job tracking spreadsheet."
-          status={sheetsStatus.configured ? 'done' : 'pending'}
-          statusText={sheetsStatus.configured ? 'Sheet connected' : 'No sheet configured'}
-          steps={SHEETS_STEPS}
+      {/* Job Description Scanner */}
+      <section className="mt-8">
+        <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-[var(--sea-ink)]">
+          <FileText className="h-5 w-5 text-[var(--lagoon)]" />
+          Job Description Scanner
+        </h2>
+        <p className="mb-4 text-sm text-[var(--sea-ink-soft)]">
+          Bulk scrape job descriptions from job postings. Failed scrapes will include a screenshot for debugging.
+        </p>
+        <DescriptionScanner
+          jobs={jobs}
+          existingDescriptions={descMap}
+          onDescriptionsChange={setDescMap}
         />
-      </div>
+      </section>
 
-      {/* Sheet URL input */}
-      <div className="mt-4">
-        <SheetUrlConfig
-          initialUrl={sheetsStatus.sheetUrl}
-          authenticated={sheetsStatus.authenticated}
-        />
-      </div>
+      {/* LinkedIn Job Search */}
+      <section className="mt-8">
+        <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-[var(--sea-ink)]">
+          <MagnifyingGlass className="h-5 w-5 text-[var(--lagoon)]" />
+          LinkedIn Job Search
+        </h2>
+        <p className="mb-4 text-sm text-[var(--sea-ink-soft)]">
+          Search LinkedIn for jobs matching your criteria. Results are limited to 5 per search.
+          Found jobs can be added to your tracker and Google Sheet.
+        </p>
+        <LinkedInScanner />
+      </section>
     </main>
   )
 }
