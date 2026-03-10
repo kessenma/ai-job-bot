@@ -6,6 +6,7 @@ import {
   sendEmail,
   disconnectGmail,
   getAuthUrl,
+  handleAuthCallback,
 } from './gmail.server.ts'
 import { saveScannedEmails, loadSavedEmails, getSavedEmailCount } from './emails.server.ts'
 import { isSessionValid, verifyPassword, createSession, destroySession } from './auth.server.ts'
@@ -74,3 +75,10 @@ export const disconnectGmailAccount = createServerFn({ method: 'POST' }).handler
   disconnectGmail()
   return { success: true }
 })
+
+export const processGmailCallback = createServerFn({ method: 'POST' })
+  .inputValidator((data: { code: string }) => data)
+  .handler(async ({ data }) => {
+    await handleAuthCallback(data.code)
+    return { success: true }
+  })
