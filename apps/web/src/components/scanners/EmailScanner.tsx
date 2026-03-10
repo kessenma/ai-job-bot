@@ -26,6 +26,15 @@ export function EmailScanner({ jobs, gmailStatus, savedEmails }: EmailScannerPro
 
   const companies = [...new Set(jobs.map((j) => j.company).filter(Boolean))]
 
+  const handleDisconnect = useCallback(async () => {
+    try {
+      await disconnectGmailAccount()
+      setConnected(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to disconnect')
+    }
+  }, [])
+
   const handleScan = useCallback(async () => {
     setScanning(true)
     setError(null)
