@@ -1,0 +1,14 @@
+{
+  "name": "job-app-bot-devtools",
+  "version": "1.0.0",
+  "description": "Local SQLite browser for the job-app-bot database",
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "install-and-start": "npm install && node server.mjs"
+  },
+  "_note": "Use 'npm install' (not pnpm) — pnpm routes installs to the workspace root.",
+  "dependencies": {
+    "better-sqlite3": "^11.0.0"
+  }
+}

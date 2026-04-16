@@ -9,34 +9,22 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as SheetsRouteImport } from './routes/sheets'
-import { Route as SetupRouteImport } from './routes/setup'
 import { Route as SettingsRouteImport } from './routes/settings'
-import { Route as FollowUpRouteImport } from './routes/follow-up'
+import { Route as PipelineRouteImport } from './routes/pipeline'
 import { Route as DashboardRouteImport } from './routes/dashboard'
 import { Route as AutoApplyRouteImport } from './routes/auto-apply'
 import { Route as AboutRouteImport } from './routes/about'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
 
-const SheetsRoute = SheetsRouteImport.update({
-  id: '/sheets',
-  path: '/sheets',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const SetupRoute = SetupRouteImport.update({
-  id: '/setup',
-  path: '/setup',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
-const FollowUpRoute = FollowUpRouteImport.update({
-  id: '/follow-up',
-  path: '/follow-up',
+const PipelineRoute = PipelineRouteImport.update({
+  id: '/pipeline',
+  path: '/pipeline',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DashboardRoute = DashboardRouteImport.update({
@@ -70,10 +58,8 @@ export interface FileRoutesByFullPath {
   '/about': typeof AboutRoute
   '/auto-apply': typeof AutoApplyRoute
   '/dashboard': typeof DashboardRoute
-  '/follow-up': typeof FollowUpRoute
+  '/pipeline': typeof PipelineRoute
   '/settings': typeof SettingsRoute
-  '/setup': typeof SetupRoute
-  '/sheets': typeof SheetsRoute
   '/auth/callback': typeof AuthCallbackRoute
 }
 export interface FileRoutesByTo {
@@ -81,10 +67,8 @@ export interface FileRoutesByTo {
   '/about': typeof AboutRoute
   '/auto-apply': typeof AutoApplyRoute
   '/dashboard': typeof DashboardRoute
-  '/follow-up': typeof FollowUpRoute
+  '/pipeline': typeof PipelineRoute
   '/settings': typeof SettingsRoute
-  '/setup': typeof SetupRoute
-  '/sheets': typeof SheetsRoute
   '/auth/callback': typeof AuthCallbackRoute
 }
 export interface FileRoutesById {
@@ -93,10 +77,8 @@ export interface FileRoutesById {
   '/about': typeof AboutRoute
   '/auto-apply': typeof AutoApplyRoute
   '/dashboard': typeof DashboardRoute
-  '/follow-up': typeof FollowUpRoute
+  '/pipeline': typeof PipelineRoute
   '/settings': typeof SettingsRoute
-  '/setup': typeof SetupRoute
-  '/sheets': typeof SheetsRoute
   '/auth/callback': typeof AuthCallbackRoute
 }
 export interface FileRouteTypes {
@@ -106,10 +88,8 @@ export interface FileRouteTypes {
     | '/about'
     | '/auto-apply'
     | '/dashboard'
-    | '/follow-up'
+    | '/pipeline'
     | '/settings'
-    | '/setup'
-    | '/sheets'
     | '/auth/callback'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -117,10 +97,8 @@ export interface FileRouteTypes {
     | '/about'
     | '/auto-apply'
     | '/dashboard'
-    | '/follow-up'
+    | '/pipeline'
     | '/settings'
-    | '/setup'
-    | '/sheets'
     | '/auth/callback'
   id:
     | '__root__'
@@ -128,10 +106,8 @@ export interface FileRouteTypes {
     | '/about'
     | '/auto-apply'
     | '/dashboard'
-    | '/follow-up'
+    | '/pipeline'
     | '/settings'
-    | '/setup'
-    | '/sheets'
     | '/auth/callback'
   fileRoutesById: FileRoutesById
 }
@@ -140,29 +116,13 @@ export interface RootRouteChildren {
   AboutRoute: typeof AboutRoute
   AutoApplyRoute: typeof AutoApplyRoute
   DashboardRoute: typeof DashboardRoute
-  FollowUpRoute: typeof FollowUpRoute
+  PipelineRoute: typeof PipelineRoute
   SettingsRoute: typeof SettingsRoute
-  SetupRoute: typeof SetupRoute
-  SheetsRoute: typeof SheetsRoute
   AuthCallbackRoute: typeof AuthCallbackRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/sheets': {
-      id: '/sheets'
-      path: '/sheets'
-      fullPath: '/sheets'
-      preLoaderRoute: typeof SheetsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/setup': {
-      id: '/setup'
-      path: '/setup'
-      fullPath: '/setup'
-      preLoaderRoute: typeof SetupRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/settings': {
       id: '/settings'
       path: '/settings'
@@ -170,11 +130,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/follow-up': {
-      id: '/follow-up'
-      path: '/follow-up'
-      fullPath: '/follow-up'
-      preLoaderRoute: typeof FollowUpRouteImport
+    '/pipeline': {
+      id: '/pipeline'
+      path: '/pipeline'
+      fullPath: '/pipeline'
+      preLoaderRoute: typeof PipelineRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/dashboard': {
@@ -220,10 +180,8 @@ const rootRouteChildren: RootRouteChildren = {
   AboutRoute: AboutRoute,
   AutoApplyRoute: AutoApplyRoute,
   DashboardRoute: DashboardRoute,
-  FollowUpRoute: FollowUpRoute,
+  PipelineRoute: PipelineRoute,
   SettingsRoute: SettingsRoute,
-  SetupRoute: SetupRoute,
-  SheetsRoute: SheetsRoute,
   AuthCallbackRoute: AuthCallbackRoute,
 }
 export const routeTree = rootRouteImport

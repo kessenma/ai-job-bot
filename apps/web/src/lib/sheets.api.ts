@@ -5,6 +5,7 @@ import {
   saveSheetUrl,
   clearSheetUrl,
   debugSheetData,
+  importJobsFromSheet,
 } from './sheets.server.ts'
 import { isAuthenticated } from './gmail.server.ts'
 
@@ -30,4 +31,8 @@ export const removeSheetsUrl = createServerFn({ method: 'POST' }).handler(() => 
 
 export const getSheetDebug = createServerFn({ method: 'GET' }).handler(async () => {
   return debugSheetData()
+})
+
+export const importFromSheet = createServerFn({ method: 'POST' }).handler(async () => {
+  return importJobsFromSheet()
 })

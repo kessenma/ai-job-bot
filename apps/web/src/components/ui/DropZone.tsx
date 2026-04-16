@@ -13,6 +13,7 @@ export function DropZone({
   inputRef,
   onInputChange,
   compact,
+  multiple,
 }: {
   accept: string
   label: string
@@ -26,6 +27,7 @@ export function DropZone({
   inputRef: React.RefObject<HTMLInputElement | null>
   onInputChange: (e: React.ChangeEvent<HTMLInputElement>) => void
   compact?: boolean
+  multiple?: boolean
 }) {
   return (
     <div
@@ -36,8 +38,8 @@ export function DropZone({
       onDragLeave={onDragLeave}
       onDrop={(e) => {
         e.preventDefault()
-        const file = e.dataTransfer.files[0]
-        if (file) onDrop(file)
+        const files = Array.from(e.dataTransfer.files)
+        for (const file of files) onDrop(file)
       }}
       onClick={onClick}
       className={`flex cursor-pointer flex-col items-center gap-2 rounded-xl border-2 border-dashed transition ${
@@ -63,6 +65,7 @@ export function DropZone({
         ref={inputRef}
         type="file"
         accept={accept}
+        multiple={multiple}
         onChange={onInputChange}
         className="hidden"
       />

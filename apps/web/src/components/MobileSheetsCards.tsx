@@ -3,15 +3,9 @@ import {
   ArrowSquareOut, Shield,
 } from '@phosphor-icons/react'
 import { StatusBadge } from '#/components/ui/index.ts'
+import { PROBE_BADGE_STYLES } from '#/lib/color-maps.ts'
 import type { JobLead } from '#/lib/types.ts'
-import type { ProbeResult, ProbeStatus } from '#/lib/types.ts'
-
-const PROBE_BADGE_STYLES: Record<ProbeStatus, string> = {
-  loaded: 'bg-green-100 text-green-700',
-  blocked: 'bg-amber-100 text-amber-700',
-  expired: 'bg-gray-100 text-gray-500',
-  error: 'bg-red-100 text-red-700',
-}
+import type { ProbeResult } from '#/lib/types.ts'
 
 interface MobileSheetsCardsProps {
   jobs: JobLead[]

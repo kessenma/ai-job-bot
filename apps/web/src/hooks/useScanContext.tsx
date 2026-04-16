@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useRef, useCallback, type ReactNode } from 'react'
 import { scrapeOneJobDescription, screenshotUrl, getJobDescriptions } from '#/lib/playwright.api.ts'
+import { useBotStream, type BotStreamState } from '#/hooks/useBotStream.ts'
 import type { JobLead, JobDescription } from '#/lib/types.ts'
 
 const MAX_FAILURE_SCREENSHOTS = 20
@@ -34,6 +35,10 @@ export interface LinkedInScanState {
   progress: number
   savedCount?: number
   error?: string
+  /** For find_matches mode: how many cards scanned so far */
+  scannedSoFar?: number
+  /** For find_matches mode: how many matches found so far */
+  matchedSoFar?: number
 }
 
 interface ScanContextValue {
@@ -44,6 +49,11 @@ interface ScanContextValue {
   initDescMap: (map: Record<string, JobDescription>) => void
   linkedInScan: LinkedInScanState
   setLinkedInScan: (update: Partial<LinkedInScanState>) => void
+  /** SSE stream session ID — owned here so the EventSource survives route navigation */
+  streamSessionId: string | null
+  setStreamSessionId: (id: string | null) => void
+  /** Live bot stream state from the SSE connection */
+  botStream: BotStreamState
 }
 
 const ScanContext = createContext<ScanContextValue | null>(null)
@@ -75,6 +85,9 @@ export function ScanProvider({ children }: { children: ReactNode }) {
   const setLinkedInScan = useCallback((update: Partial<LinkedInScanState>) => {
     setLinkedInScanState((prev) => ({ ...prev, ...update }))
   }, [])
+
+  const [streamSessionId, setStreamSessionId] = useState<string | null>(null)
+  const botStream = useBotStream(streamSessionId)
 
   const cancelledRef = useRef(false)
   const activeRef = useRef(false)
@@ -183,7 +196,7 @@ export function ScanProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <ScanContext.Provider value={{ descScan, startDescScan, cancelDescScan, initDescMap, linkedInScan, setLinkedInScan }}>
+    <ScanContext.Provider value={{ descScan, startDescScan, cancelDescScan, initDescMap, linkedInScan, setLinkedInScan, streamSessionId, setStreamSessionId, botStream }}>
       {children}
     </ScanContext.Provider>
   )

@@ -6,6 +6,9 @@ export const uploads = sqliteTable('uploads', {
   name: text('name').notNull().unique(), // safe stored filename
   originalName: text('original_name').notNull(),
   extractedText: text('extracted_text'),
+  isPrimary: integer('is_primary', { mode: 'boolean' }).default(false), // root cover letter for AI generation
+  driveFileId: text('drive_file_id'), // Google Drive file ID if synced from Drive
+  mimeType: text('mime_type'), // e.g. 'application/pdf', 'application/vnd.google-apps.document'
   uploadedAt: text('uploaded_at').notNull().$defaultFn(() => new Date().toISOString()),
 })
 
@@ -34,12 +37,28 @@ export const jobs = sqliteTable('jobs', {
   applicationStatus: text('application_status'),
   followUpEmailStatus: text('follow_up_email_status'),
   accountManagerRemarks: text('account_manager_remarks'),
+  // Structured location
+  country: text('country'),
+  state: text('state'),
+  city: text('city'),
+  // Dual URL tracking
+  sourceUrl: text('source_url'), // where job was discovered (e.g. LinkedIn job page URL)
+  // jobUrl = employer's ATS/career page URL; sourceUrl = discovery platform URL
   // Derived
   atsPlatform: text('ats_platform'),
+  // LLM suitability scoring
+  suitabilityScore: integer('suitability_score'), // 1-10
+  suitabilityReason: text('suitability_reason'),
   // Metadata
-  source: text('source').default('csv'), // 'csv' | 'sheets' | 'manual'
+  source: text('source').default('csv'), // 'csv' | 'sheets' | 'linkedin' | 'manual'
   createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
   updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
+  // Lifecycle timestamps
+  searchedAt: text('searched_at'),
+  draftedAt: text('drafted_at'),
+  appliedAt: text('applied_at'),
+  expiredAt: text('expired_at'),
+  respondedAt: text('responded_at'),
 })
 
 export const scannedEmails = sqliteTable('scanned_emails', {
@@ -118,9 +137,49 @@ export const linkedinSearches = sqliteTable('linkedin_searches', {
   skills: text('skills'), // comma-separated
   resultsCount: integer('results_count').notNull().default(0),
   savedCount: integer('saved_count').notNull().default(0),
+  totalAvailable: integer('total_available'),
   results: text('results').notNull(), // JSON array of LinkedInSearchResult
+  logs: text('logs'), // JSON array of server log strings
   savedToSheet: integer('saved_to_sheet', { mode: 'boolean' }).default(false),
+  hasRecording: integer('has_recording', { mode: 'boolean' }).default(false),
   searchedAt: text('searched_at').notNull().$defaultFn(() => new Date().toISOString()),
+})
+
+export const linkedinCredentials = sqliteTable('linkedin_credentials', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  email: text('email').notNull(),
+  password: text('password').notNull(),
+  updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
+})
+
+export const formQuestions = sqliteTable('form_questions', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  jobUrl: text('job_url'),
+  jobId: integer('job_id').references(() => jobs.id),
+  platform: text('platform'), // 'linkedin' | 'recruitee' | 'join' | etc.
+  questionText: text('question_text').notNull(),
+  questionHash: text('question_hash').notNull(), // normalized hash for dedup
+  fieldType: text('field_type'), // 'text' | 'select' | 'radio' | 'checkbox'
+  options: text('options'), // JSON array of available options (for select/radio)
+  status: text('status').notNull(), // 'answered' | 'unanswered' | 'user_answered'
+  answeredValue: text('answered_value'),
+  profileField: text('profile_field'), // which profile field matched
+  occurrences: integer('occurrences').notNull().default(1),
+  firstSeenAt: text('first_seen_at').notNull().$defaultFn(() => new Date().toISOString()),
+  lastSeenAt: text('last_seen_at').notNull().$defaultFn(() => new Date().toISOString()),
+})
+
+export const applyErrors = sqliteTable('apply_errors', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  jobId: integer('job_id').references(() => jobs.id),
+  jobUrl: text('job_url'),
+  handler: text('handler').notNull(), // 'linkedin-easy-apply' | 'fill-form' | 'apply'
+  errorType: text('error_type').notNull(), // 'no_easy_apply' | 'captcha' | 'login_expired' | 'form_stuck' | 'timeout' | 'unknown'
+  errorMessage: text('error_message'),
+  screenshotId: integer('screenshot_id').references(() => screenshots.id),
+  stepsCompleted: integer('steps_completed'),
+  dismissed: integer('dismissed', { mode: 'boolean' }).default(false),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
 })
 
 export const syncLog = sqliteTable('sync_log', {
@@ -131,4 +190,87 @@ export const syncLog = sqliteTable('sync_log', {
   emailsCount: integer('emails_count'),
   error: text('error'),
   syncedAt: text('synced_at').notNull().$defaultFn(() => new Date().toISOString()),
+})
+
+export const applicationQueue = sqliteTable('application_queue', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  jobId: integer('job_id').references(() => jobs.id),
+  jobUrl: text('job_url').notNull(),
+  company: text('company').notNull(),
+  role: text('role'),
+  handler: text('handler').notNull(), // 'fill-form' | 'linkedin-easy-apply' | 'workday'
+  atsPlatform: text('ats_platform'),
+  filledFields: text('filled_fields').notNull(), // JSON: { label, value, type }[]
+  skippedFields: text('skipped_fields'), // JSON: string[]
+  unansweredQuestions: text('unanswered_questions'), // JSON: { label, type, options?, required }[]
+  stepsCompleted: integer('steps_completed'),
+  screenshotId: integer('screenshot_id').references(() => screenshots.id),
+  suitabilityScore: integer('suitability_score'),
+  status: text('status').notNull().default('pending'), // pending | approved | rejected | submitted | failed | expired
+  userEdits: text('user_edits'), // JSON: { label, originalValue, newValue }[]
+  failureReason: text('failure_reason'),
+  dryRunTimeMs: integer('dry_run_time_ms'),
+  reviewedAt: text('reviewed_at'),
+  submittedAt: text('submitted_at'),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+})
+
+export const experienceEntries = sqliteTable('experience_entries', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  category: text('category').notNull().default('work'), // work | education | publication | project
+  company: text('company').notNull(),
+  role: text('role').notNull(),
+  startDate: text('start_date'), // "2022-01" or ISO date
+  endDate: text('end_date'), // null = current position
+  description: text('description').notNull(), // rich technical narrative
+  skills: text('skills'), // JSON array of skill strings
+  sortOrder: integer('sort_order').default(0),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+  updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
+})
+
+export const generatedResumes = sqliteTable('generated_resumes', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  jobId: integer('job_id').references(() => jobs.id),
+  company: text('company'),
+  role: text('role'),
+  driveDocId: text('drive_doc_id'),
+  driveUrl: text('drive_url'),
+  resumeText: text('resume_text'),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+})
+
+export const generatedCoverLetters = sqliteTable('generated_cover_letters', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  jobUrl: text('job_url'), // nullable FK to jobs.job_url
+  company: text('company').notNull(),
+  role: text('role').notNull(),
+  location: text('location'),
+  industry: text('industry'),
+  scrapedDescription: text('scraped_description'), // raw scraped job description text
+  style: text('style').notNull(), // 'classic' | 'modern'
+  content: text('content').notNull(),
+  modelUsed: text('model_used'),
+  generationTimeS: text('generation_time_s'), // real stored as text
+  driveDocId: text('drive_doc_id'),
+  driveUrl: text('drive_url'),
+  createdAt: text('created_at').notNull().$defaultFn(() => new Date().toISOString()),
+})
+
+export const appConfig = sqliteTable('app_config', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+  updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
+})
+
+export const jobPreferences = sqliteTable('job_preferences', {
+  id: integer('id').primaryKey({ autoIncrement: true }),
+  companyBlacklist: text('company_blacklist'), // JSON array of company names
+  titleBlacklist: text('title_blacklist'), // JSON array of title keywords
+  workType: text('work_type'), // 'remote' | 'hybrid' | 'onsite' | 'any'
+  salaryMin: integer('salary_min'),
+  salaryMax: integer('salary_max'),
+  salaryCurrency: text('salary_currency').default('EUR'),
+  minSuitabilityScore: integer('min_suitability_score').default(5), // 1-10, auto-apply threshold
+  updatedAt: text('updated_at').notNull().$defaultFn(() => new Date().toISOString()),
 })

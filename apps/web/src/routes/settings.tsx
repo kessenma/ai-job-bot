@@ -1,40 +1,63 @@
-import { createFileRoute, Link } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { useState } from 'react'
-import {
-  GearSix as SettingsIcon, EnvelopeSimple, Table, ArrowSquareOut,
-  CheckCircle, XCircle, CircleNotch, LinkedinLogo, Heart,
-} from '@phosphor-icons/react'
-import { getResume, getCoverLetters } from '#/lib/resume.api.ts'
+import { GearSix as SettingsIcon } from '@phosphor-icons/react'
+import { getResumes, getCoverLetters } from '#/lib/resume.api.ts'
 import { getGmailStatus } from '#/lib/gmail.api.ts'
 import { getSheetsStatus } from '#/lib/sheets.api.ts'
 import { getLlmStatus, getLlmModels } from '#/lib/llm.api.ts'
-import { testLinkedInLogin } from '#/lib/playwright.api.ts'
+import { getLinkedInCredentialsStatus } from '#/lib/playwright.api.ts'
+import { getApplyErrors } from '#/lib/error-log.api.ts'
+import { getJobPreferences } from '#/lib/preferences.api.ts'
+import { getExperienceEntries } from '#/lib/experience.api.ts'
+import { getGeneratedLetters } from '#/lib/cover-letter-gen.api.ts'
+import { getDriveWorkspaceStatus } from '#/lib/drive-workspace.api.ts'
+import { getAllCliStatuses } from '#/lib/cli-detect.api.ts'
+import { getAppConfig } from '#/lib/config.api.ts'
 import { requireAuth } from '#/lib/auth-guard.ts'
+import { SetupGuide } from '#/components/setup/SetupGuide.tsx'
+import { ConnectionsSection } from '#/components/settings/ConnectionsSection.tsx'
+import { DriveWorkspaceSection } from '#/components/settings/DriveWorkspaceSection.tsx'
+import { JobPreferencesSection } from '#/components/settings/JobPreferencesSection.tsx'
 import { ResumeSection } from '#/components/settings/ResumeSection.tsx'
 import { CoverLetterManagement } from '#/components/settings/CoverLetterManagement.tsx'
+import { CoverLetterGenerator } from '#/components/settings/CoverLetterGenerator.tsx'
 import { LlmManagement } from '#/components/settings/LlmManagement.tsx'
+import { ApplyErrorLog } from '#/components/settings/ApplyErrorLog.tsx'
 import { LogoutSection } from '#/components/settings/LogoutSection.tsx'
+import { ExperienceProfileSection } from '#/components/settings/ExperienceProfileSection.tsx'
+import { CreditsSection } from '#/components/settings/CreditsSection.tsx'
+import { LlmSetupWizard } from '#/components/setup/LlmSetupWizard.tsx'
 
 export const Route = createFileRoute('/settings')({
   beforeLoad: requireAuth,
   loader: async () => {
-    const [resume, coverLetters, gmailStatus, sheetsStatus, llmStatus, llmModels] = await Promise.all([
-      getResume(),
+    const [resumes, coverLetters, gmailStatus, sheetsStatus, llmStatus, llmModels, applyErrors, jobPreferences, linkedInCredentialsStatus, experienceEntries, generatedLetters, workspaceStatus, cliStatuses, appConfig] = await Promise.all([
+      getResumes(),
       getCoverLetters(),
       getGmailStatus(),
       getSheetsStatus(),
       getLlmStatus(),
       getLlmModels(),
+      getApplyErrors({ data: { dismissed: false } }),
+      getJobPreferences(),
+      getLinkedInCredentialsStatus(),
+      getExperienceEntries(),
+      getGeneratedLetters({ data: {} }),
+      getDriveWorkspaceStatus(),
+      getAllCliStatuses(),
+      getAppConfig(),
     ])
-    return { resume, coverLetters, gmailStatus, sheetsStatus, llmStatus, llmModels }
+    return { resumes, coverLetters, gmailStatus, sheetsStatus, llmStatus, llmModels, applyErrors, jobPreferences, linkedInCredentialsStatus, experienceEntries, generatedLetters, workspaceStatus, cliStatuses, appConfig }
   },
   component: Settings,
 })
 
 function Settings() {
-  const { resume: initialResume, coverLetters: initialCoverLetters, gmailStatus, sheetsStatus, llmStatus, llmModels } = Route.useLoaderData()
-  const [resume, setResume] = useState(initialResume)
+  const { resumes: initialResumes, coverLetters: initialCoverLetters, gmailStatus, sheetsStatus, llmStatus, llmModels, applyErrors, jobPreferences, linkedInCredentialsStatus, experienceEntries, generatedLetters, workspaceStatus: initialWorkspaceStatus, cliStatuses, appConfig } = Route.useLoaderData()
+  const [resumes, setResumes] = useState(initialResumes)
   const [coverLetters, setCoverLetters] = useState(initialCoverLetters)
+  const [generatedCoverLetters, setGeneratedCoverLetters] = useState(generatedLetters)
+  const [workspaceStatus, setWorkspaceStatus] = useState(initialWorkspaceStatus)
 
   return (
     <main className="page-wrap px-4 pb-8 pt-14">
@@ -43,246 +66,62 @@ function Settings() {
         Settings
       </h1>
 
+      {/* Setup Guide (one-time config) */}
+      <SetupGuide
+        gmailStatus={gmailStatus}
+        sheetsStatus={sheetsStatus}
+        workspaceStatus={workspaceStatus}
+        onWorkspaceChange={setWorkspaceStatus}
+      />
+
+      {/* LLM Provider Setup */}
+      <LlmSetupWizard
+        initialCliStatuses={cliStatuses}
+        initialLlmStatus={llmStatus as { connected: boolean; status: string; model_loaded?: boolean; active_model?: string | null }}
+        initialSetupCompleted={appConfig.llm_setup_completed === 'true'}
+      />
+
       {/* Connections overview */}
-      <section className="island-shell mb-6 rounded-2xl p-6">
-        <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-[var(--sea-ink)]">
-          Connections
-        </h2>
-        <div className="space-y-3">
-          {/* Gmail */}
-          <div className="flex items-center gap-3 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4">
-            <EnvelopeSimple className="h-5 w-5 shrink-0 text-[var(--lagoon)]" />
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="font-medium text-[var(--sea-ink)]">Gmail</span>
-                {gmailStatus.connected ? (
-                  <span className="flex items-center gap-1 text-xs text-green-600">
-                    <CheckCircle className="h-3 w-3" /> Connected
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1 text-xs text-[var(--sea-ink-soft)]">
-                    <XCircle className="h-3 w-3" /> Not connected
-                  </span>
-                )}
-              </div>
-              {gmailStatus.savedEmailCount > 0 && (
-                <div className="text-xs text-[var(--sea-ink-soft)]">
-                  {gmailStatus.savedEmailCount} emails scanned and saved
-                </div>
-              )}
-            </div>
-            <Link
-              to="/setup"
-              className="text-xs font-medium text-[var(--lagoon-deep)] hover:underline"
-            >
-              <EnvelopeSimple className="mr-1 inline h-3 w-3" />
-              Setup
-            </Link>
-          </div>
+      <ConnectionsSection
+        gmailStatus={gmailStatus}
+        sheetsStatus={sheetsStatus}
+        linkedInCredentialsStatus={linkedInCredentialsStatus}
+        workspaceConfigured={workspaceStatus.configured}
+      />
 
-          {/* Google Sheets */}
-          <div className="flex items-center gap-3 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4">
-            <Table className="h-5 w-5 shrink-0 text-[var(--lagoon)]" />
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="font-medium text-[var(--sea-ink)]">Google Sheets</span>
-                {sheetsStatus.configured && sheetsStatus.authenticated ? (
-                  <span className="flex items-center gap-1 text-xs text-green-600">
-                    <CheckCircle className="h-3 w-3" /> Connected
-                  </span>
-                ) : sheetsStatus.configured ? (
-                  <span className="flex items-center gap-1 text-xs text-amber-600">
-                    <XCircle className="h-3 w-3" /> Not authenticated
-                  </span>
-                ) : (
-                  <span className="flex items-center gap-1 text-xs text-[var(--sea-ink-soft)]">
-                    <XCircle className="h-3 w-3" /> Not configured
-                  </span>
-                )}
-              </div>
-              {sheetsStatus.sheetUrl && (
-                <a
-                  href={sheetsStatus.sheetUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block truncate text-xs text-[var(--lagoon-deep)] hover:underline"
-                >
-                  {sheetsStatus.sheetUrl} <ArrowSquareOut className="mb-0.5 inline h-3 w-3" />
-                </a>
-              )}
-            </div>
-            <Link
-              to="/sheets"
-              className="text-xs font-medium text-[var(--lagoon-deep)] hover:underline"
-            >
-              <Table className="mr-1 inline h-3 w-3" />
-              Manage
-            </Link>
-          </div>
-          {/* LinkedIn */}
-          <LinkedInConnectionRow />
-        </div>
-      </section>
+      {/* Drive Workspace (standalone section outside setup guide) */}
+      <DriveWorkspaceSection
+        workspaceStatus={workspaceStatus}
+        onStatusChange={setWorkspaceStatus}
+      />
 
-      <ResumeSection resume={resume} onResumeChange={setResume} />
-      <CoverLetterManagement coverLetters={coverLetters} onCoverLettersChange={setCoverLetters} />
+      {/* Job Preferences */}
+      <JobPreferencesSection initialPrefs={jobPreferences} />
+
+      {/* Experience Profile */}
+      <ExperienceProfileSection
+        initialEntries={experienceEntries}
+        llmConnected={(llmStatus as { connected: boolean }).connected}
+        claudeCliAvailable={cliStatuses.claude.available && cliStatuses.claude.authenticated}
+        copilotCliAvailable={cliStatuses.gh.available && cliStatuses.gh.authenticated}
+        resumes={resumes.map((r) => ({ name: r.name, originalName: r.originalName, isPrimary: r.isPrimary }))}
+      />
+
+      {/* Apply Error Log */}
+      <ApplyErrorLog errors={applyErrors} />
+
+      <ResumeSection resumes={resumes} onResumesChange={setResumes} workspaceConfig={workspaceStatus.config} />
+      <CoverLetterManagement
+        coverLetters={coverLetters}
+        onCoverLettersChange={setCoverLetters}
+        generatedLetters={generatedCoverLetters}
+        onGeneratedLettersChange={setGeneratedCoverLetters}
+        workspaceConfig={workspaceStatus.config}
+      />
+      <CoverLetterGenerator initialHistory={generatedCoverLetters} availableSamples={coverLetters} />
       <LlmManagement initialStatus={llmStatus} initialModels={llmModels} />
       <LogoutSection />
       <CreditsSection />
     </main>
-  )
-}
-
-function LinkedInConnectionRow() {
-  const [status, setStatus] = useState<'idle' | 'testing' | 'verifying' | 'connected' | 'failed' | 'not_configured' | 'captcha_blocked' | 'verification_pending'>('idle')
-  const [message, setMessage] = useState<string | null>(null)
-
-  const handleTest = async () => {
-    setStatus('testing')
-    setMessage(null)
-    try {
-      const res = await testLinkedInLogin({ data: { waitForVerification: false } })
-      setStatus(res.status as typeof status)
-      setMessage(res.message)
-    } catch (err) {
-      setStatus('failed')
-      setMessage(err instanceof Error ? err.message : 'Connection test failed')
-    }
-  }
-
-  const handleVerify = async () => {
-    setStatus('verifying')
-    setMessage('Waiting for you to approve on your LinkedIn app (up to 60s)...')
-    try {
-      const res = await testLinkedInLogin({ data: { waitForVerification: true } })
-      setStatus(res.status as typeof status)
-      setMessage(res.message)
-    } catch (err) {
-      setStatus('failed')
-      setMessage(err instanceof Error ? err.message : 'Verification failed')
-    }
-  }
-
-  return (
-    <div className="flex items-center gap-3 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4">
-      <LinkedinLogo className="h-5 w-5 shrink-0 text-[var(--lagoon)]" />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="font-medium text-[var(--sea-ink)]">LinkedIn</span>
-          {status === 'connected' ? (
-            <span className="flex items-center gap-1 text-xs text-green-600">
-              <CheckCircle className="h-3 w-3" /> Connected
-            </span>
-          ) : status === 'not_configured' ? (
-            <span className="flex items-center gap-1 text-xs text-amber-600">
-              <XCircle className="h-3 w-3" /> Env vars not set
-            </span>
-          ) : status === 'captcha_blocked' ? (
-            <span className="flex items-center gap-1 text-xs text-amber-600">
-              <XCircle className="h-3 w-3" /> Captcha required
-            </span>
-          ) : status === 'verification_pending' ? (
-            <span className="flex items-center gap-1 text-xs text-blue-600">
-              <CircleNotch className="h-3 w-3" /> Awaiting approval
-            </span>
-          ) : status === 'failed' ? (
-            <span className="flex items-center gap-1 text-xs text-red-600">
-              <XCircle className="h-3 w-3" /> Failed
-            </span>
-          ) : null}
-        </div>
-        {message && (
-          <div className="text-xs text-[var(--sea-ink-soft)]">{message}</div>
-        )}
-      </div>
-      <div className="flex shrink-0 items-center gap-2">
-        {status === 'verification_pending' && (
-          <button
-            onClick={handleVerify}
-            className="flex items-center gap-1.5 rounded-full bg-[var(--lagoon)] px-3 py-1 text-xs font-medium text-white hover:opacity-90"
-          >
-            <CheckCircle className="h-3 w-3" />
-            I Approved It
-          </button>
-        )}
-        <button
-          onClick={handleTest}
-          disabled={status === 'testing' || status === 'verifying'}
-          className="flex items-center gap-1.5 text-xs font-medium text-[var(--lagoon-deep)] hover:underline disabled:opacity-50"
-        >
-          {status === 'testing' || status === 'verifying' ? (
-            <>
-              <CircleNotch className="h-3 w-3 animate-spin" />
-              {status === 'verifying' ? 'Waiting...' : 'Testing...'}
-            </>
-          ) : (
-            <>
-              <LinkedinLogo className="h-3 w-3" />
-              Test Login
-            </>
-          )}
-        </button>
-      </div>
-    </div>
-  )
-}
-
-const CREDITS = [
-  {
-    name: 'Ammar Abdur Raheman',
-    project: 'linkedin-easy-apply',
-    description: 'LinkedIn Easy Apply automation with Playwright — login, search, and form-fill patterns.',
-    url: 'https://github.com/AmmarAR97/linkedin-easy-apply',
-    license: 'MIT',
-  },
-  {
-    name: 'Unisa Bangura',
-    project: 'Workday-Application-Automator',
-    description: 'Workday application automation — auto-fills contact, education, and demographic info.',
-    url: 'https://github.com/ubangura/Workday-Application-Automator',
-    license: 'ISC',
-  },
-]
-
-function CreditsSection() {
-  return (
-    <section className="island-shell mb-6 mt-6 rounded-2xl p-6">
-      <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-[var(--sea-ink)]">
-        <Heart className="h-5 w-5 text-[var(--lagoon)]" />
-        Credits
-      </h2>
-      <p className="mb-4 text-sm text-[var(--sea-ink-soft)]">
-        This project builds on the work of these open-source authors and projects.
-      </p>
-      <div className="space-y-3">
-        {CREDITS.map((c) => (
-          <div key={c.project} className="flex items-start gap-3 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-4">
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2">
-                <span className="font-medium text-[var(--sea-ink)]">{c.project}</span>
-                <span className="rounded-full bg-[var(--surface-strong)] px-2 py-0.5 text-[10px] font-bold uppercase text-[var(--sea-ink-soft)]">
-                  {c.license}
-                </span>
-              </div>
-              <div className="mt-0.5 text-xs text-[var(--sea-ink-soft)]">
-                by {c.name}
-              </div>
-              <div className="mt-1 text-sm text-[var(--sea-ink-soft)]">
-                {c.description}
-              </div>
-            </div>
-            <a
-              href={c.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="shrink-0 text-xs font-medium text-[var(--lagoon-deep)] hover:underline"
-            >
-              <ArrowSquareOut className="mr-1 inline h-3 w-3" />
-              GitHub
-            </a>
-          </div>
-        ))}
-      </div>
-    </section>
   )
 }

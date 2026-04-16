@@ -3,6 +3,7 @@ import {
   MapPinIcon, ArrowSquareOutIcon, EnvelopeSimpleIcon, PhoneIcon, LinkedinLogoIcon,
   FileText, CheckCircle, Trash, UploadSimple, CircleNotch,
   CaretDown, CaretUp, Buildings, Lightbulb, ListBullets, MagnifyingGlass, CurrencyCircleDollar, Globe,
+  Copy, GoogleDriveLogo,
 } from '@phosphor-icons/react'
 import {
   attachCoverLetterToJob,
@@ -10,7 +11,10 @@ import {
   removeCoverLetterFromJob,
 } from '#/lib/jobs.api.ts'
 import { scrapeOneJobDescription } from '#/lib/playwright.api.ts'
+import { scoreJob } from '#/lib/scoring.api.ts'
+import { generateAndSaveCoverLetter, saveCoverLetterToDrive } from '#/lib/cover-letter-gen.api.ts'
 import { ATS_DIFFICULTY } from '#/lib/ats-classifier.ts'
+import { DIFFICULTY_COLORS, CLASSIFICATION_COLORS } from '#/lib/color-maps.ts'
 import type { FileInfo } from '#/lib/uploads.server.ts'
 import type { JobLead, JobDescription } from '#/lib/types.ts'
 import type { ScannedEmail } from '#/lib/gmail.server.ts'
@@ -21,12 +25,6 @@ import {
   SheetTitle,
   SheetDescription,
 } from '#/components/ui/sheet.tsx'
-
-const diffColors = {
-  easy: 'bg-green-500/15 text-green-700',
-  medium: 'bg-yellow-500/15 text-yellow-700',
-  hard: 'bg-red-500/15 text-red-700',
-}
 
 export type CoverLetterMap = Record<string, { uploadName: string; originalName: string; createdAt: string }>
 
@@ -90,17 +88,21 @@ function JobDetailContent({
   const [activeTab, setActiveTab] = useState<'details' | 'emails' | 'cover-letter' | 'requirements'>('details')
   const [clLoading, setClLoading] = useState(false)
   const [scrapeLoading, setScrapeLoading] = useState(false)
+  const [scoreLoading, setScoreLoading] = useState(false)
+  const [score, setScore] = useState<{ score: number; reason: string } | null>(
+    job.suitabilityScore != null ? { score: job.suitabilityScore, reason: job.suitabilityReason || '' } : null,
+  )
+  const [generateLoading, setGenerateLoading] = useState(false)
+  const [generatedCL, setGeneratedCL] = useState<string | null>(null)
+  const [generatedCLId, setGeneratedCLId] = useState<number | null>(null)
+  const [generatedCLDriveUrl, setGeneratedCLDriveUrl] = useState<string | null>(null)
+  const [clStyle, setClStyle] = useState<'classic' | 'modern'>('classic')
+  const [savingToDrive, setSavingToDrive] = useState(false)
+  const [clCopied, setClCopied] = useState(false)
   const [viewAllOpen, setViewAllOpen] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const difficulty = ATS_DIFFICULTY[job.atsPlatform]
-
-  const classificationColors: Record<string, string> = {
-    rejection: 'bg-red-100 text-red-700',
-    interview: 'bg-purple-100 text-purple-700',
-    applied: 'bg-blue-100 text-blue-700',
-    other: 'bg-gray-100 text-gray-600',
-  }
 
   return (
     <>
@@ -140,9 +142,42 @@ function JobDetailContent({
               <span className="rounded-md px-2 py-0.5 text-xs font-bold uppercase tracking-wider bg-[var(--surface)] text-[var(--sea-ink-soft)]">
                 {job.atsPlatform}
               </span>
-              <span className={`rounded-md px-2 py-0.5 text-xs font-bold uppercase tracking-wider ${diffColors[difficulty]}`}>
+              <span className={`rounded-md px-2 py-0.5 text-xs font-bold uppercase tracking-wider ${DIFFICULTY_COLORS[difficulty]}`}>
                 {difficulty}
               </span>
+              {score && (
+                <span className={`rounded-md px-2 py-0.5 text-xs font-bold ${
+                  score.score >= 7 ? 'bg-green-500/15 text-green-700' :
+                  score.score >= 4 ? 'bg-yellow-500/15 text-yellow-700' :
+                  'bg-red-500/15 text-red-700'
+                }`}>
+                  FIT: {score.score}/10
+                </span>
+              )}
+            </div>
+
+            {/* Suitability Score */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={async () => {
+                  if (!description?.raw) return
+                  setScoreLoading(true)
+                  try {
+                    const result = await scoreJob({ data: { jobUrl: job.jobUrl, jobDescription: description.raw, company: job.company, role: job.role } })
+                    setScore({ score: result.score, reason: result.reason })
+                  } catch { /* ignore */ }
+                  finally { setScoreLoading(false) }
+                }}
+                disabled={scoreLoading || !description?.raw}
+                title={!description?.raw ? 'Scrape the job description first (Requirements tab)' : undefined}
+                className="flex items-center gap-1.5 rounded-full border border-[var(--line)] px-3 py-1 text-xs font-medium text-[var(--sea-ink)] hover:bg-[var(--surface-strong)] disabled:opacity-50"
+              >
+                {scoreLoading ? <CircleNotch className="h-3 w-3 animate-spin" /> : <Lightbulb className="h-3 w-3 text-[var(--lagoon)]" />}
+                {scoreLoading ? 'Scoring...' : score ? 'Re-score' : 'Score Fit'}
+              </button>
+              {score?.reason && (
+                <span className="text-xs text-[var(--sea-ink-soft)] line-clamp-1">{score.reason}</span>
+              )}
             </div>
 
             {/* Location */}
@@ -257,7 +292,7 @@ function JobDetailContent({
                           {email.from} · {email.date}
                         </div>
                       </div>
-                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${classificationColors[email.classification] ?? classificationColors.other}`}>
+                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${CLASSIFICATION_COLORS[email.classification] ?? CLASSIFICATION_COLORS.other}`}>
                         {email.classification}
                       </span>
                     </div>
@@ -271,7 +306,7 @@ function JobDetailContent({
                         {email.matchedKeywords.map((kw) => (
                           <span
                             key={kw}
-                            className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${classificationColors[email.classification] ?? classificationColors.other}`}
+                            className={`rounded-full px-1.5 py-0.5 text-[10px] font-medium ${CLASSIFICATION_COLORS[email.classification] ?? CLASSIFICATION_COLORS.other}`}
                           >
                             "{kw}"
                           </span>
@@ -482,6 +517,111 @@ function JobDetailContent({
               <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] p-6 text-center">
                 <FileText className="mx-auto h-8 w-8 text-[var(--sea-ink-soft)] opacity-50" />
                 <p className="mt-2 text-sm text-[var(--sea-ink-soft)]">No cover letter attached</p>
+              </div>
+            )}
+
+            {/* Style toggle */}
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-medium text-[var(--sea-ink-soft)] uppercase tracking-wider">Style</span>
+              <div className="inline-flex rounded-lg border border-[var(--line)] p-0.5">
+                {(['classic', 'modern'] as const).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setClStyle(s)}
+                    className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                      clStyle === s
+                        ? 'bg-[var(--lagoon)] text-white'
+                        : 'text-[var(--sea-ink-soft)] hover:text-[var(--sea-ink)]'
+                    }`}
+                  >
+                    {s === 'classic' ? 'Classic' : 'Modern'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Generate with AI */}
+            <button
+              onClick={async () => {
+                setGenerateLoading(true)
+                setGeneratedCL(null)
+                setGeneratedCLId(null)
+                setGeneratedCLDriveUrl(null)
+                try {
+                  const result = await generateAndSaveCoverLetter({
+                    data: {
+                      jobUrl: job.jobUrl,
+                      company: job.company,
+                      role: job.role,
+                      jobDescription: description?.raw || '',
+                      style: clStyle,
+                    },
+                  })
+                  setGeneratedCL(result.content)
+                  setGeneratedCLId(result.id)
+                } catch { /* ignore */ }
+                finally { setGenerateLoading(false) }
+              }}
+              disabled={generateLoading || clLoading}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--lagoon)] px-4 py-3 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-50"
+            >
+              {generateLoading ? <CircleNotch className="h-4 w-4 animate-spin" /> : <Lightbulb className="h-4 w-4" />}
+              {generateLoading ? 'Generating...' : 'Generate with AI'}
+            </button>
+
+            {/* Generated cover letter preview */}
+            {generatedCL && (
+              <div className="rounded-xl border border-[var(--lagoon)]/30 bg-[var(--lagoon)]/5 p-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="text-xs font-medium uppercase tracking-wider text-[var(--lagoon)]">
+                    AI Generated ({clStyle})
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={async () => {
+                        await navigator.clipboard.writeText(generatedCL)
+                        setClCopied(true)
+                        setTimeout(() => setClCopied(false), 2000)
+                      }}
+                      className="flex items-center gap-1 rounded-full border border-[var(--line)] px-2.5 py-1 text-xs font-medium text-[var(--sea-ink)] hover:bg-[var(--surface-strong)]"
+                    >
+                      {clCopied ? <CheckCircle className="h-3 w-3 text-green-600" /> : <Copy className="h-3 w-3" />}
+                      {clCopied ? 'Copied' : 'Copy'}
+                    </button>
+                    {generatedCLId && !generatedCLDriveUrl && (
+                      <button
+                        onClick={async () => {
+                          setSavingToDrive(true)
+                          try {
+                            const { docUrl } = await saveCoverLetterToDrive({ data: { id: generatedCLId } })
+                            setGeneratedCLDriveUrl(docUrl)
+                          } catch { /* ignore */ }
+                          finally { setSavingToDrive(false) }
+                        }}
+                        disabled={savingToDrive}
+                        className="flex items-center gap-1 rounded-full border border-[var(--line)] px-2.5 py-1 text-xs font-medium text-[var(--sea-ink)] hover:bg-[var(--surface-strong)] disabled:opacity-50"
+                      >
+                        {savingToDrive ? <CircleNotch className="h-3 w-3 animate-spin" /> : <GoogleDriveLogo className="h-3 w-3" />}
+                        Save to Drive
+                      </button>
+                    )}
+                    {generatedCLDriveUrl && (
+                      <a
+                        href={generatedCLDriveUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 rounded-full border border-green-200 bg-green-50 px-2.5 py-1 text-xs font-medium text-green-700 hover:bg-green-100"
+                      >
+                        <ArrowSquareOutIcon className="h-3 w-3" />
+                        Open in Drive
+                      </a>
+                    )}
+                  </div>
+                </div>
+                <div className="max-h-60 overflow-y-auto whitespace-pre-wrap text-sm text-[var(--sea-ink)] leading-relaxed">
+                  {generatedCL}
+                </div>
               </div>
             )}
 

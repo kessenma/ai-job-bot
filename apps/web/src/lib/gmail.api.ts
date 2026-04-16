@@ -57,6 +57,28 @@ export const scanOneCompany = createServerFn({ method: 'POST' })
 
     const result: ScanResult = { company: data.company, emails, suggestedStatus }
     await saveScannedEmails([result])
+
+    // Set respondedAt on matching job records when recruiter emails are found
+    if (emails.length > 0) {
+      try {
+        const { db, schema } = await import('@job-app-bot/db')
+        const { eq } = await import('drizzle-orm')
+        // Find jobs matching this company that don't have respondedAt set yet
+        const jobs = await db
+          .select({ id: schema.jobs.id })
+          .from(schema.jobs)
+          .where(eq(schema.jobs.company, data.company))
+        for (const job of jobs) {
+          await db
+            .update(schema.jobs)
+            .set({ respondedAt: new Date().toISOString(), updatedAt: new Date().toISOString() })
+            .where(eq(schema.jobs.id, job.id))
+        }
+      } catch (err) {
+        console.error('Failed to set respondedAt on jobs:', err)
+      }
+    }
+
     return result
   })
 
@@ -81,4 +103,13 @@ export const processGmailCallback = createServerFn({ method: 'POST' })
   .handler(async ({ data }) => {
     await handleAuthCallback(data.code)
     return { success: true }
+  })
+
+// --- Workday Verification Email ---
+
+export const findWorkdayVerification = createServerFn({ method: 'POST' })
+  .inputValidator((data: { maxAgeMins?: number }) => data)
+  .handler(async ({ data }) => {
+    const { findWorkdayVerificationEmail } = await import('./gmail.server.ts')
+    return findWorkdayVerificationEmail(data.maxAgeMins ?? 15)
   })

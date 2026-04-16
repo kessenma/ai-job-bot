@@ -1,7 +1,7 @@
 'use client';
 
 import { motion, useMotionValue, useSpring, useTransform, AnimatePresence, type MotionValue } from 'motion/react';
-import { Children, cloneElement, useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { Children, cloneElement, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 
 interface DockItemData {
   icon: ReactElement;
@@ -10,6 +10,10 @@ interface DockItemData {
   className?: string;
   /** 0-1 progress value to show a circular progress ring. undefined = no ring */
   progress?: number;
+  /** Rich tooltip content shown on hover (replaces plain label if provided) */
+  tooltip?: ReactNode;
+  /** Badge count/text shown on the icon corner */
+  badge?: number | string;
 }
 
 interface DockItemProps {
@@ -22,9 +26,10 @@ interface DockItemProps {
   magnification: number;
   baseItemSize: number;
   progress?: number;
+  badge?: number | string;
 }
 
-function DockItem({ children, className = '', onClick, mouseX, spring, distance, magnification, baseItemSize, progress }: DockItemProps) {
+function DockItem({ children, className = '', onClick, mouseX, spring, distance, magnification, baseItemSize, progress, badge }: DockItemProps) {
   const ref = useRef<HTMLDivElement>(null);
   const isHovered = useMotionValue(0);
 
@@ -58,7 +63,23 @@ function DockItem({ children, className = '', onClick, mouseX, spring, distance,
     >
       {Children.map(children, child => cloneElement(child as ReactElement<{ isHovered?: MotionValue<number> }>, { isHovered }))}
       {progress !== undefined && <ProgressRing progress={progress} />}
+      {badge !== undefined && <DockBadge value={badge} />}
     </motion.div>
+  );
+}
+
+function DockBadge({ value }: { value: number | string }) {
+  return (
+    <AnimatePresence>
+      <motion.div
+        initial={{ scale: 0 }}
+        animate={{ scale: 1 }}
+        exit={{ scale: 0 }}
+        className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--lagoon,#56c6be)] px-1 text-[9px] font-bold text-white shadow-sm"
+      >
+        {value}
+      </motion.div>
+    </AnimatePresence>
   );
 }
 
@@ -115,6 +136,9 @@ function DockLabel({ children, className = '', isHovered }: DockLabelProps) {
     return () => unsubscribe();
   }, [isHovered]);
 
+  // Detect if children is rich content (ReactNode) vs plain string
+  const isRichContent = typeof children !== 'string';
+
   return (
     <AnimatePresence>
       {isVisible && (
@@ -123,7 +147,9 @@ function DockLabel({ children, className = '', isHovered }: DockLabelProps) {
           animate={{ opacity: 1, y: -10 }}
           exit={{ opacity: 0, y: 0 }}
           transition={{ duration: 0.2 }}
-          className={`${className} absolute -top-6 left-1/2 w-fit whitespace-pre rounded-md border border-neutral-700 bg-[#060010] px-2 py-0.5 text-xs text-white`}
+          className={`${className} absolute -top-6 left-1/2 w-fit rounded-md border border-neutral-700 bg-[#060010] text-xs text-white ${
+            isRichContent ? 'min-w-[180px] p-2.5' : 'whitespace-pre px-2 py-0.5'
+          }`}
           role="tooltip"
           style={{ x: '-50%' }}
         >
@@ -223,9 +249,10 @@ export default function Dock({
             magnification={effectiveMagnification}
             baseItemSize={effectiveItemSize}
             progress={item.progress}
+            badge={item.badge}
           >
             <DockIcon>{item.icon}</DockIcon>
-            <DockLabel>{item.label}</DockLabel>
+            <DockLabel>{item.tooltip || item.label}</DockLabel>
           </DockItem>
         ))}
       </motion.div>

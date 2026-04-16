@@ -23,13 +23,19 @@ const SERVICES = {
     file: "docker-compose.playwright.yml",
     localOnly: true, // no local dev mode — always Docker
   },
+  jobspy: {
+    label: "JobSpy service (port 8085)",
+    file: "docker-compose.jobspy.yml",
+    localOnly: true, // no local dev mode — always Docker
+  },
 };
 
 const PRESETS = {
   1: { name: "Web + LLM", services: ["web", "llm"] },
   2: { name: "Web + Playwright", services: ["web", "playwright"] },
-  3: { name: "All services", services: ["web", "llm", "playwright"] },
-  4: { name: "Custom selection", services: null },
+  3: { name: "All services", services: ["web", "llm", "playwright", "jobspy"] },
+  4: { name: "All except LLM", services: ["web", "playwright", "jobspy"] },
+  5: { name: "Custom selection", services: null },
 };
 
 const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -82,18 +88,28 @@ function getRunningServices(files) {
   }
 }
 
-async function warnIfAlreadyRunning(files) {
+// Returns "skip" if all services are running and user wants to keep them,
+// or undefined otherwise.
+async function warnIfAlreadyRunning(files, { canSkip = false } = {}) {
   const running = getRunningServices(files);
   if (running.length === 0) return;
 
   console.log(`\n⚠️  The following services are already running:`);
   running.forEach((s, i) => console.log(`  ${i + 1}) ${s}`));
   console.log(`\nOptions:`);
+  if (canSkip) {
+    console.log(`  k) Keep running (skip rebuild)`);
+  }
   console.log(`  a) Restart all`);
   console.log(`  n) Abort`);
   console.log(`  Or enter numbers to restart specific services (e.g. "1" or "1,3")`);
 
-  const answer = (await ask("\nRestart which? (a/n/numbers): ")).trim().toLowerCase();
+  const answer = (await ask(`\nRestart which? (${canSkip ? "k/" : ""}a/n/numbers): `)).trim().toLowerCase();
+
+  if (answer === "k" && canSkip) {
+    console.log("Keeping existing containers running.");
+    return "skip";
+  }
 
   if (answer === "n") {
     console.log("Aborted.");
@@ -113,7 +129,7 @@ async function warnIfAlreadyRunning(files) {
 
   if (toRestart.length === 0) {
     console.log("No services selected, continuing without restart.");
-    return;
+    return canSkip ? "skip" : undefined;
   }
 
   // Stop only the selected services
@@ -151,13 +167,13 @@ async function pickServices() {
   );
   console.log('       e.g. "1l" = Web (local) + LLM (Docker)');
 
-  const raw = (await ask("\nSelect preset (1-4[l]): ")).trim();
-  const { presetKey, localWeb } = parseAnswer(raw);
-  const preset = PRESETS[presetKey];
-
-  if (!preset) {
-    console.log("Invalid selection, defaulting to Web + LLM.");
-    return { services: ["web", "llm"], localWeb: false };
+  let raw, presetKey, localWeb, preset;
+  while (true) {
+    raw = (await ask("\nSelect preset (1-5[l]): ")).trim();
+    ({ presetKey, localWeb } = parseAnswer(raw));
+    preset = PRESETS[presetKey];
+    if (preset) break;
+    console.log(`\n  "${raw}" is not a valid selection. Please try again.`);
   }
 
   if (preset.services) {
@@ -238,10 +254,12 @@ async function main() {
   }
 
   // Docker is only needed if we have backend services
+  let skipDockerRebuild = false;
   if (dockerServices.length > 0) {
     checkDockerRunning();
     ensureCoolifyNetwork();
-    await warnIfAlreadyRunning(files);
+    const result = await warnIfAlreadyRunning(files, { canSkip: runWebLocally });
+    if (result === "skip") skipDockerRebuild = true;
   }
 
   rl.close();
@@ -259,7 +277,7 @@ async function main() {
   const procs = [];
 
   // Start backend services detached so web logs aren't buried
-  if (dockerServices.length > 0) {
+  if (dockerServices.length > 0 && !skipDockerRebuild) {
     const upArgs = ["docker", "compose", ...composeArgs, "up", "--build"];
     if (runWebLocally || detached) upArgs.push("-d");
 

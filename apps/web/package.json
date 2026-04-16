@@ -14,7 +14,7 @@
     "cleanup": "lsof -ti:3000 | xargs kill -9 2>/dev/null; pkill -f 'bun.*vite' 2>/dev/null; pkill -f 'vite.*dev' 2>/dev/null; rm -rf node_modules/.vite/deps_temp_* 2>/dev/null; echo 'Cleanup complete'"
   },
   "dependencies": {
-    "@base-ui/react": "^1.2.0",
+    "@base-ui/react": "^1.3.0",
     "@fontsource-variable/geist": "^5.2.8",
     "@job-app-bot/db": "workspace:*",
     "@job-app-bot/shared": "workspace:*",

@@ -1,0 +1,17 @@
+[project]
+name = "jobspy-service"
+version = "1.0.0"
+description = "Multi-board job search microservice"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.111.0",
+    "uvicorn>=0.30.0",
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "requests>=2.31.0",
+    "beautifulsoup4>=4.12.0",
+    "pydantic>=2.0.0",
+    "tls-client>=1.0.0",
+    "markdownify>=0.12.0",
+    "regex>=2023.0",
+]

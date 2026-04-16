@@ -9,6 +9,8 @@
     "docker:dev": "node scripts/docker-dev.mjs",
     "docker:dev:detach": "node scripts/docker-dev.mjs --detach",
     "docker:down": "node scripts/docker-dev.mjs --down",
+    "clear-db": "node scripts/clear-db.mjs",
+    "migrate:check": "node scripts/migrate-check.mjs",
     "build-check": "pnpm --filter web check-types && pnpm --filter @job-app-bot/playwright check-types && pnpm --filter llm check-types"
   },
   "trustedDependencies": [

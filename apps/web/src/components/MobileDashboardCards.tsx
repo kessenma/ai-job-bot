@@ -3,24 +3,9 @@ import {
   MapPinIcon, ArrowSquareOutIcon, CheckCircle,
 } from '@phosphor-icons/react'
 import { ATS_DIFFICULTY } from '#/lib/ats-classifier.ts'
+import { STATUS_COLORS, DIFFICULTY_COLORS, getStatusColorKey } from '#/lib/color-maps.ts'
 import type { JobLead } from '#/lib/types.ts'
 import type { CoverLetterMap } from '#/components/DashboardJobSheet.tsx'
-
-const statusColors: Record<string, string> = {
-  submitted: 'bg-blue-500/15 text-blue-700',
-  applied: 'bg-blue-500/15 text-blue-700',
-  rejected: 'bg-red-500/15 text-red-700',
-  interview: 'bg-purple-500/15 text-purple-700',
-  'action needed': 'bg-orange-500/15 text-orange-700',
-  'not submitted': 'bg-gray-500/15 text-gray-600',
-  expired: 'bg-gray-500/15 text-gray-600',
-}
-
-const diffColors: Record<string, string> = {
-  easy: 'bg-green-500/15 text-green-700',
-  medium: 'bg-yellow-500/15 text-yellow-700',
-  hard: 'bg-red-500/15 text-red-700',
-}
 
 interface MobileDashboardCardsProps {
   jobs: JobLead[]
@@ -41,9 +26,7 @@ export function MobileDashboardCards({ jobs, clMap, onSelectJob }: MobileDashboa
     <div className="space-y-3">
       {jobs.map((job, i) => {
         const difficulty = ATS_DIFFICULTY[job.atsPlatform]
-        const statusKey = Object.keys(statusColors).find((k) =>
-          job.applicationStatus.toLowerCase().includes(k),
-        )
+        const statusKey = getStatusColorKey(job.applicationStatus)
         const cl = clMap[job.jobUrl]
 
         return (
@@ -67,7 +50,7 @@ export function MobileDashboardCards({ jobs, clMap, onSelectJob }: MobileDashboa
                   </div>
                 </div>
                 {statusKey && (
-                  <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[statusKey]}`}>
+                  <span className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_COLORS[statusKey]}`}>
                     {job.applicationStatus}
                   </span>
                 )}
@@ -89,7 +72,7 @@ export function MobileDashboardCards({ jobs, clMap, onSelectJob }: MobileDashboa
 
               {/* Footer: ATS difficulty + Cover Letter */}
               <div className="flex items-center gap-2">
-                <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${diffColors[difficulty]}`}>
+                <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${DIFFICULTY_COLORS[difficulty]}`}>
                   {difficulty}
                 </span>
                 {cl && (

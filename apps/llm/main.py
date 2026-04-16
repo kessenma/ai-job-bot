@@ -1,162 +1,57 @@
-import os
 import json
 import logging
-import gc
-import time
+import os
+import re
 import threading
-from typing import List, Dict, Any, Optional, cast
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any, Dict
 
 import embed as embed_module
-
-# Set environment variables for optimal CPU performance
-os.environ["OMP_NUM_THREADS"] = "8"
-os.environ["MKL_NUM_THREADS"] = "8"
-os.environ["OPENBLAS_NUM_THREADS"] = "8"
-
+import model_manager as mm
+import psutil
+from config import AVAILABLE_MODELS, DEFAULT_MODEL, MODEL_DIR, N_CTX
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from llama_cpp import Llama
-from llama_cpp.llama_types import CreateCompletionResponse
-import psutil
+from prompts import (
+    build_answer_form_fields_messages,
+    build_chat_prompt,
+    build_cover_letter_messages,
+    build_parse_resume_messages,
+    build_resume_messages,
+    build_score_job_messages,
+)
+from providers import get_provider, list_all_models
+from schemas import (
+    ChatRequest,
+    ChatResponse,
+    CoverLetterRequest,
+    CoverLetterResponse,
+    DeleteModelRequest,
+    DeleteModelResponse,
+    EmbedRequest,
+    EmbedResponse,
+    GenerateResumeRequest,
+    GenerateResumeResponse,
+    HealthResponse,
+    ModelStatusInfo,
+    ModelsStatusResponse,
+    ParsedExperienceEntry,
+    ParseResumeRequest,
+    ParseResumeResponse,
+    ScoreJobRequest,
+    ScoreJobResponse,
+    SwitchModelRequest,
+    SwitchModelResponse,
+    AnswerFormFieldsRequest,
+    AnswerFormFieldsResponse,
+    FormFieldAnswer,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- Configuration ---
-
-MODEL_DIR = os.getenv("MODEL_DIR", "./models")
-DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "")
-N_CTX = int(os.getenv("N_CTX", "4096"))
-N_THREADS = int(os.getenv("N_THREADS", "8"))
-N_GPU_LAYERS = int(os.getenv("N_GPU_LAYERS", "0"))
-
-AVAILABLE_MODELS = {
-    "1b": {
-        "name": "Llama-3.2-1B-Instruct",
-        "repo": "bartowski/Llama-3.2-1B-Instruct-GGUF",
-        "filename": "Llama-3.2-1B-Instruct-Q4_K_M.gguf",
-        "local_name": "llama-3.2-1b-instruct-q4.gguf",
-        "size_gb": 0.8,
-    },
-    "3b": {
-        "name": "Llama-3.2-3B-Instruct",
-        "repo": "bartowski/Llama-3.2-3B-Instruct-GGUF",
-        "filename": "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
-        "local_name": "llama-3.2-3b-instruct-q4.gguf",
-        "size_gb": 2.0,
-    },
-    "7b": {
-        "name": "Llama-3.1-7B-Instruct",
-        "repo": "bartowski/Meta-Llama-3.1-8B-Instruct-GGUF",
-        "filename": "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
-        "local_name": "llama-3.1-8b-instruct-q4.gguf",
-        "size_gb": 4.9,
-    },
-}
-
-# --- Global state ---
-
-llm: Optional[Llama] = None
-active_model_id: Optional[str] = None
-_switch_lock = threading.Lock()
-
-# Download/load progress tracking per model
-# status: "idle" | "downloading" | "loading" | "ready" | "error"
-_model_status: Dict[str, Dict[str, Any]] = {}
-
-def _init_model_status():
-    for mid in AVAILABLE_MODELS:
-        _model_status[mid] = {
-            "status": "idle",
-            "download_progress": 0.0,     # 0-100
-            "download_bytes": 0,
-            "download_total_bytes": 0,
-            "current_step": "",            # "downloading" | "loading" | ""
-            "error": None,
-        }
-
-_init_model_status()
-
-
-# --- Pydantic models ---
-
-class HealthResponse(BaseModel):
-    status: str
-    model_loaded: bool
-    active_model: Optional[str] = None
-    memory_usage: Dict[str, Any]
-
-class ModelStatusInfo(BaseModel):
-    id: str
-    name: str
-    size_gb: float
-    downloaded: bool
-    active: bool
-    status: str              # idle | downloading | loading | ready | error
-    download_progress: float # 0-100
-    current_step: str
-    error: Optional[str] = None
-
-class ModelsStatusResponse(BaseModel):
-    models: List[ModelStatusInfo]
-    current_model: Optional[str] = None
-
-class SwitchModelRequest(BaseModel):
-    model_id: str
-
-class SwitchModelResponse(BaseModel):
-    ok: bool
-    model: str
-    status: str  # "downloading" | "loading" | "ready"
-
-class DeleteModelRequest(BaseModel):
-    model_id: str
-
-class DeleteModelResponse(BaseModel):
-    ok: bool
-    model_id: str
-    message: str
-
-class EmbedRequest(BaseModel):
-    text: str
-
-class EmbedResponse(BaseModel):
-    embedding: List[float]
-    model: str
-    dimensions: int
-
-class ChatRequest(BaseModel):
-    message: str
-    context: Optional[str] = None
-    temperature: float = 0.7
-    max_tokens: int = 512
-
-class ChatResponse(BaseModel):
-    response: str
-    generation_time_s: float
-
-class CoverLetterRequest(BaseModel):
-    company: str
-    role: str
-    job_description: str = ""
-    location: str = ""
-    candidate_name: str
-    cover_letter_samples: List[str] = []
-    resume_text: str = ""
-    temperature: float = 0.7
-    max_length: int = 1024
-
-class CoverLetterResponse(BaseModel):
-    cover_letter: str
-    model_info: Dict[str, Any]
-    usage: Dict[str, Any]
-    generation_time_s: float
-
-
-# --- Helpers ---
 
 def get_memory_usage() -> Dict[str, Any]:
     try:
@@ -174,209 +69,9 @@ def get_memory_usage() -> Dict[str, Any]:
         return {"error": str(e)}
 
 
-def model_path(model_id: str) -> Path:
-    info = AVAILABLE_MODELS[model_id]
-    return Path(MODEL_DIR) / info["local_name"]
-
-
-def is_downloaded(model_id: str) -> bool:
-    return model_path(model_id).exists()
-
-
-def _monitor_download_progress(model_id: str, dest: Path, expected_size_bytes: int, stop_event: threading.Event):
-    """Background thread to monitor file download progress by checking partial file sizes."""
-    # HuggingFace downloads to a temp file first, then renames
-    download_dir = dest.parent
-    status = _model_status[model_id]
-
-    while not stop_event.is_set():
-        try:
-            # Look for incomplete download files (HF uses .incomplete suffix or blobs dir)
-            total_bytes = 0
-            for f in download_dir.rglob("*"):
-                if f.is_file() and (f.suffix == ".incomplete" or "blobs" in str(f)):
-                    total_bytes = max(total_bytes, f.stat().st_size)
-
-            # Also check the destination file directly
-            if dest.exists():
-                total_bytes = max(total_bytes, dest.stat().st_size)
-
-            if expected_size_bytes > 0 and total_bytes > 0:
-                progress = min(round((total_bytes / expected_size_bytes) * 100, 1), 99.9)
-                status["download_progress"] = progress
-                status["download_bytes"] = total_bytes
-                status["download_total_bytes"] = expected_size_bytes
-        except Exception:
-            pass
-        stop_event.wait(2)  # Check every 2 seconds
-
-
-def download_model(model_id: str) -> None:
-    """Download model with file-size-based progress tracking."""
-    info = AVAILABLE_MODELS[model_id]
-    dest = model_path(model_id)
-    status = _model_status[model_id]
-
-    if dest.exists():
-        logger.info(f"Model {model_id} already downloaded at {dest}")
-        status["status"] = "ready"
-        status["download_progress"] = 100.0
-        status["current_step"] = ""
-        return
-
-    logger.info(f"Downloading {info['name']} from {info['repo']}...")
-    dest.parent.mkdir(parents=True, exist_ok=True)
-
-    status["status"] = "downloading"
-    status["download_progress"] = 0.0
-    status["current_step"] = "downloading"
-    status["error"] = None
-
-    # Start a background thread to monitor download progress via file size
-    expected_bytes = int(info["size_gb"] * 1024 * 1024 * 1024)
-    stop_event = threading.Event()
-    monitor = threading.Thread(
-        target=_monitor_download_progress,
-        args=(model_id, dest, expected_bytes, stop_event),
-        daemon=True,
-    )
-    monitor.start()
-
-    from huggingface_hub import hf_hub_download
-
-    try:
-        downloaded_path = hf_hub_download(
-            repo_id=info["repo"],
-            filename=info["filename"],
-            local_dir=str(dest.parent),
-        )
-        # Rename to our standard local name
-        dl = Path(downloaded_path)
-        if dl != dest:
-            dl.rename(dest)
-
-        status["download_progress"] = 100.0
-        status["current_step"] = ""
-        logger.info(f"Model {model_id} downloaded to {dest}")
-    finally:
-        stop_event.set()
-        monitor.join(timeout=5)
-
-
-def load_model(model_id: str) -> None:
-    global llm, active_model_id
-
-    status = _model_status[model_id]
-    status["status"] = "loading"
-    status["current_step"] = "loading"
-
-    # Unload current model if any
-    if active_model_id and active_model_id != model_id:
-        old_status = _model_status[active_model_id]
-        old_status["status"] = "ready" if is_downloaded(active_model_id) else "idle"
-    unload_model()
-
-    path = model_path(model_id)
-    if not path.exists():
-        status["status"] = "error"
-        status["error"] = f"Model file not found: {path}"
-        raise FileNotFoundError(f"Model file not found: {path}")
-
-    logger.info(f"Loading model {model_id} from {path}...")
-    logger.info(f"Config: n_ctx={N_CTX}, n_threads={N_THREADS}, n_gpu_layers={N_GPU_LAYERS}")
-
-    try:
-        llm = Llama(
-            model_path=str(path),
-            n_ctx=N_CTX,
-            n_threads=N_THREADS,
-            n_gpu_layers=N_GPU_LAYERS,
-            verbose=True,
-            use_mmap=True,
-            use_mlock=False,
-            n_batch=256,
-            f16_kv=True,
-        )
-        active_model_id = model_id
-        status["status"] = "ready"
-        status["current_step"] = ""
-        status["download_progress"] = 100.0
-
-        logger.info(f"Model {model_id} loaded successfully")
-        logger.info(f"Memory after loading: {get_memory_usage()}")
-    except Exception as e:
-        status["status"] = "error"
-        status["error"] = str(e)
-        raise
-
-
-def unload_model() -> None:
-    global llm, active_model_id
-    if llm is not None:
-        del llm
-        llm = None
-        active_model_id = None
-        gc.collect()
-        logger.info("Model unloaded")
-
-
-def _switch_model_background(model_id: str) -> None:
-    """Download and load a model in a background thread."""
-    try:
-        download_model(model_id)
-        load_model(model_id)
-    except Exception as e:
-        logger.error(f"Background model switch failed: {e}")
-        _model_status[model_id]["status"] = "error"
-        _model_status[model_id]["error"] = str(e)
-
-
-def build_cover_letter_prompt(req: CoverLetterRequest) -> str:
-    """Build a Llama 3.2 chat-formatted prompt for cover letter generation."""
-
-    # System message
-    system_parts = [
-        "You are an expert cover letter writer. Write professional, compelling cover letters.",
-    ]
-
-    if req.cover_letter_samples:
-        system_parts.append(
-            "Match the tone, style, and structure of the following sample cover letter(s) "
-            "provided by the candidate:"
-        )
-        for i, sample in enumerate(req.cover_letter_samples[:2]):  # max 2 samples
-            truncated = sample[:2000]  # truncate long samples
-            system_parts.append(f"\n--- Sample {i + 1} ---\n{truncated}")
-
-    if req.resume_text:
-        truncated_resume = req.resume_text[:1500]
-        system_parts.append(f"\n--- Candidate Resume ---\n{truncated_resume}")
-
-    system_msg = "\n".join(system_parts)
-
-    # User message
-    user_parts = [
-        f"Write a cover letter for {req.candidate_name} applying to the {req.role} position at {req.company}.",
-    ]
-    if req.location:
-        user_parts.append(f"The job is located in {req.location}.")
-    if req.job_description:
-        truncated_jd = req.job_description[:2000]
-        user_parts.append(f"\nJob Description:\n{truncated_jd}")
-
-    user_parts.append(
-        "\nWrite only the cover letter text. Do not include any commentary or explanation."
-    )
-    user_msg = " ".join(user_parts) if not req.job_description else "\n".join(user_parts)
-
-    # Llama 3.2 chat template
-    prompt = (
-        f"<|begin_of_text|>"
-        f"<|start_header_id|>system<|end_header_id|>\n\n{system_msg}<|eot_id|>"
-        f"<|start_header_id|>user<|end_header_id|>\n\n{user_msg}<|eot_id|>"
-        f"<|start_header_id|>assistant<|end_header_id|>\n\n"
-    )
-    return prompt
+def _is_cli_model(model_id: str | None) -> bool:
+    """Check if the model_id refers to a CLI-based provider."""
+    return bool(model_id and model_id.startswith("claude/"))
 
 
 # --- App lifecycle ---
@@ -386,19 +81,17 @@ async def lifespan(app: FastAPI):
     logger.info("Starting LLM service...")
     Path(MODEL_DIR).mkdir(parents=True, exist_ok=True)
 
-    # Load embedding model in background so it doesn't block startup
     threading.Thread(target=embed_module.init, daemon=True).start()
 
-    # Mark already-downloaded models
     for mid in AVAILABLE_MODELS:
-        if is_downloaded(mid):
-            _model_status[mid]["status"] = "ready"
-            _model_status[mid]["download_progress"] = 100.0
+        if mm.is_downloaded(mid):
+            mm._model_status[mid]["status"] = "ready"
+            mm._model_status[mid]["download_progress"] = 100.0
 
     if DEFAULT_MODEL:
         try:
-            download_model(DEFAULT_MODEL)
-            load_model(DEFAULT_MODEL)
+            mm.download_model(DEFAULT_MODEL)
+            mm.load_model(DEFAULT_MODEL)
         except Exception as e:
             logger.error(f"Failed to load default model: {e}")
     else:
@@ -407,15 +100,15 @@ async def lifespan(app: FastAPI):
     yield
 
     logger.info("Shutting down LLM service...")
-    unload_model()
+    mm.unload_model()
 
 
 # --- FastAPI app ---
 
 app = FastAPI(
     title="Job App Bot LLM Service",
-    description="Local LLM service for cover letter generation",
-    version="1.0.0",
+    description="LLM service for cover letter generation — supports local models and CLI providers",
+    version="2.0.0",
     lifespan=lifespan,
 )
 
@@ -432,11 +125,11 @@ app.add_middleware(
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
-    model_loaded = llm is not None
+    model_loaded = mm.llm is not None
     return HealthResponse(
         status="healthy" if model_loaded else "no_model",
         model_loaded=model_loaded,
-        active_model=AVAILABLE_MODELS[active_model_id]["name"] if active_model_id else None,
+        active_model=AVAILABLE_MODELS[mm.active_model_id]["name"] if mm.active_model_id else None,
         memory_usage=get_memory_usage(),
     )
 
@@ -460,47 +153,33 @@ async def embed_text(req: EmbedRequest):
 
 @app.get("/models", response_model=ModelsStatusResponse)
 @app.get("/models/status", response_model=ModelsStatusResponse)
-async def list_models():
-    """List all models with download/load status. Poll this endpoint for progress updates."""
-    models = []
-    for mid, info in AVAILABLE_MODELS.items():
-        st = _model_status[mid]
-        models.append(ModelStatusInfo(
-            id=mid,
-            name=info["name"],
-            size_gb=info["size_gb"],
-            downloaded=is_downloaded(mid),
-            active=(mid == active_model_id),
-            status=st["status"],
-            download_progress=st["download_progress"],
-            current_step=st["current_step"],
-            error=st.get("error"),
-        ))
-    return ModelsStatusResponse(
-        models=models,
-        current_model=active_model_id,
-    )
+async def models_status(cli_path: str | None = None):
+    """List all models (local + CLI) with status. Pass cli_path query param for CLI availability."""
+    all_models = list_all_models(cli_path=cli_path)
+    models = [ModelStatusInfo(**m) for m in all_models]
+    return ModelsStatusResponse(models=models, current_model=mm.active_model_id)
 
 
 @app.get("/model-info")
 async def get_model_info():
-    if llm is None or active_model_id is None:
+    if mm.llm is None or mm.active_model_id is None:
         raise HTTPException(status_code=503, detail="No model loaded")
-
-    info = AVAILABLE_MODELS[active_model_id]
+    info = AVAILABLE_MODELS[mm.active_model_id]
     return {
-        "model_id": active_model_id,
+        "model_id": mm.active_model_id,
         "model_name": info["name"],
         "context_window": N_CTX,
-        "threads": N_THREADS,
-        "gpu_layers": N_GPU_LAYERS,
+        "threads": int(os.getenv("N_THREADS", "8")),
+        "gpu_layers": int(os.getenv("N_GPU_LAYERS", "0")),
         "memory_usage": get_memory_usage(),
     }
 
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(req: ChatRequest):
-    if llm is None:
+    use_cli = _is_cli_model(req.model_id)
+
+    if not use_cli and mm.llm is None:
         raise HTTPException(status_code=503, detail="No model loaded. Use POST /switch-model to load one.")
 
     system_msg = "You are a helpful assistant."
@@ -510,129 +189,254 @@ async def chat(req: ChatRequest):
     else:
         logger.info("Chat without context")
 
-    prompt = (
-        f"<|start_header_id|>system<|end_header_id|>\n\n{system_msg}<|eot_id|>"
-        f"<|start_header_id|>user<|end_header_id|>\n\n{req.message}<|eot_id|>"
-        f"<|start_header_id|>assistant<|end_header_id|>\n\n"
-    )
-
-    logger.info(f"Prompt length: {len(prompt)} chars")
-
     start = time.time()
     try:
-        output = cast(CreateCompletionResponse, llm(
-            prompt,
-            max_tokens=min(req.max_tokens, 1024),
-            temperature=req.temperature,
-            top_p=0.9,
-            stop=["<|eot_id|>", "<|start_header_id|>", "<|end_of_text|>"],
-            echo=False,
-        ))
+        provider = get_provider(req.model_id, cli_path=req.cli_path)
+        result = provider.generate(system_msg, req.message, max_tokens=min(req.max_tokens, 1024), temperature=req.temperature)
     except Exception as e:
         logger.error(f"Chat generation error: {e}")
         raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
 
-    text = output["choices"][0]["text"].strip()
-    for token in ["<|eot_id|>", "<|start_header_id|>", "<|end_of_text|>"]:
-        text = text.replace(token, "")
-    text = text.strip()
-
-    if not text:
+    if not result.text:
         raise HTTPException(status_code=500, detail="Model produced empty output")
 
-    return ChatResponse(response=text, generation_time_s=round(time.time() - start, 2))
+    return ChatResponse(response=result.text, generation_time_s=round(time.time() - start, 2))
 
 
 @app.post("/switch-model", response_model=SwitchModelResponse)
 async def switch_model(req: SwitchModelRequest):
-    """Switch to a different model. Downloads if needed. Runs in background so client can poll /models/status."""
+    """Switch to a different local model. Downloads if needed. Runs in background so client can poll /models/status."""
     if req.model_id not in AVAILABLE_MODELS:
         raise HTTPException(status_code=400, detail=f"Unknown model: {req.model_id}. Available: {list(AVAILABLE_MODELS.keys())}")
 
-    if req.model_id == active_model_id:
+    if req.model_id == mm.active_model_id:
         return SwitchModelResponse(ok=True, model=AVAILABLE_MODELS[req.model_id]["name"], status="ready")
 
-    # Check if already downloading/loading
-    st = _model_status[req.model_id]
+    st = mm._model_status[req.model_id]
     if st["status"] in ("downloading", "loading"):
         return SwitchModelResponse(ok=True, model=AVAILABLE_MODELS[req.model_id]["name"], status=st["status"])
 
-    if not _switch_lock.acquire(blocking=False):
+    if not mm._switch_lock.acquire(blocking=False):
         raise HTTPException(status_code=409, detail="Another model switch is in progress")
 
-    # If already downloaded, load synchronously (fast)
-    if is_downloaded(req.model_id):
+    if mm.is_downloaded(req.model_id):
         try:
-            load_model(req.model_id)
+            mm.load_model(req.model_id)
             return SwitchModelResponse(ok=True, model=AVAILABLE_MODELS[req.model_id]["name"], status="ready")
         except Exception as e:
             raise HTTPException(status_code=500, detail=str(e))
         finally:
-            _switch_lock.release()
+            mm._switch_lock.release()
     else:
-        # Need to download — run in background thread so client can poll progress
         def run():
             try:
-                _switch_model_background(req.model_id)
+                mm.switch_model_background(req.model_id)
             finally:
-                _switch_lock.release()
+                mm._switch_lock.release()
 
-        thread = threading.Thread(target=run, daemon=True)
-        thread.start()
+        threading.Thread(target=run, daemon=True).start()
         return SwitchModelResponse(ok=True, model=AVAILABLE_MODELS[req.model_id]["name"], status="downloading")
+
+
+@app.post("/score-job", response_model=ScoreJobResponse)
+async def score_job(req: ScoreJobRequest):
+    """Score how well a job matches the candidate's profile (1-10)."""
+    use_cli = _is_cli_model(req.model_id)
+
+    if not use_cli and mm.llm is None:
+        raise HTTPException(status_code=503, detail="No model loaded. Use POST /switch-model to load one.")
+
+    logger.info(f"Scoring job: {req.role} at {req.company} (model: {req.model_id or 'local'})")
+
+    start = time.time()
+    try:
+        provider = get_provider(req.model_id, cli_path=req.cli_path)
+        system_msg, user_msg = build_score_job_messages(req, full_context=use_cli)
+        result = provider.generate(system_msg, user_msg, max_tokens=256, temperature=0.3)
+    except Exception as e:
+        logger.error(f"Scoring error: {e}")
+        raise HTTPException(status_code=500, detail=f"Scoring failed: {e}")
+
+    generation_time = time.time() - start
+    text = result.text
+
+    try:
+        json_match = re.search(r'\{[^}]+\}', text)
+        parsed = json.loads(json_match.group() if json_match else text)
+        score = max(1, min(10, int(parsed.get("score", 5))))
+        reason = str(parsed.get("reason", ""))
+    except (json.JSONDecodeError, ValueError):
+        numbers = re.findall(r'\b(\d+)\b', text)
+        score = max(1, min(10, int(numbers[0]))) if numbers else 5
+        reason = text[:200]
+
+    logger.info(f"Job scored {score}/10 in {generation_time:.2f}s")
+    return ScoreJobResponse(score=score, reason=reason, generation_time_s=round(generation_time, 2))
 
 
 @app.post("/generate-cover-letter", response_model=CoverLetterResponse)
 async def generate_cover_letter(req: CoverLetterRequest):
-    if llm is None:
+    use_cli = _is_cli_model(req.model_id)
+
+    if not use_cli and mm.llm is None:
         raise HTTPException(status_code=503, detail="No model loaded. Use POST /switch-model to load one.")
 
-    prompt = build_cover_letter_prompt(req)
-    logger.info(f"Generating cover letter for {req.candidate_name} at {req.company} ({req.role})")
+    logger.info(f"Generating cover letter for {req.candidate_name} at {req.company} ({req.role}) [model: {req.model_id or 'local'}]")
 
     start = time.time()
     try:
-        output = cast(CreateCompletionResponse, llm(
-            prompt,
-            max_tokens=min(req.max_length, 2048),
-            temperature=req.temperature,
-            top_p=0.9,
-            stop=["<|eot_id|>", "<|start_header_id|>", "<|end_of_text|>"],
-            echo=False,
-        ))
+        provider = get_provider(req.model_id, cli_path=req.cli_path)
+        system_msg, user_msg = build_cover_letter_messages(req, full_context=use_cli)
+        result = provider.generate(system_msg, user_msg, max_tokens=min(req.max_length, 2048), temperature=req.temperature)
     except Exception as e:
         logger.error(f"Generation error: {e}")
         raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
 
     generation_time = time.time() - start
 
-    text = output["choices"][0]["text"].strip()
-    # Clean any leaked special tokens
-    for token in ["<|eot_id|>", "<|start_header_id|>", "<|end_of_text|>"]:
-        text = text.replace(token, "")
-    text = text.strip()
+    if not result.text:
+        raise HTTPException(status_code=500, detail="Model produced empty output")
+
+    logger.info(f"Cover letter generated in {generation_time:.2f}s ({result.input_tokens + result.output_tokens} tokens)")
+
+    return CoverLetterResponse(
+        cover_letter=result.text,
+        model_info={
+            "model_id": result.model_id,
+            "model_name": result.model_name,
+            "context_window": N_CTX if not use_cli else 200000,
+            "temperature": req.temperature,
+        },
+        usage={
+            "input_tokens": result.input_tokens,
+            "output_tokens": result.output_tokens,
+            "total_tokens": result.input_tokens + result.output_tokens,
+        },
+        generation_time_s=round(generation_time, 2),
+    )
+
+
+@app.post("/generate-resume", response_model=GenerateResumeResponse)
+async def generate_resume(req: GenerateResumeRequest):
+    """Generate a tailored resume from experience entries for a specific job."""
+    use_cli = _is_cli_model(req.model_id)
+
+    if not use_cli and mm.llm is None:
+        raise HTTPException(status_code=503, detail="No model loaded. Use POST /switch-model to load one.")
+
+    logger.info(f"Generating resume for {req.candidate_name} at {req.company} ({req.role}) [model: {req.model_id or 'local'}]")
+
+    start = time.time()
+    try:
+        provider = get_provider(req.model_id, cli_path=req.cli_path)
+        system_msg, user_msg = build_resume_messages(req, full_context=use_cli)
+        result = provider.generate(system_msg, user_msg, max_tokens=min(req.max_length, 4096), temperature=req.temperature)
+    except Exception as e:
+        logger.error(f"Resume generation error: {e}")
+        raise HTTPException(status_code=500, detail=f"Generation failed: {e}")
+
+    generation_time = time.time() - start
+
+    if not result.text:
+        raise HTTPException(status_code=500, detail="Model produced empty output")
+
+    logger.info(f"Resume generated in {generation_time:.2f}s ({result.input_tokens + result.output_tokens} tokens)")
+
+    return GenerateResumeResponse(
+        resume_text=result.text,
+        model_info={
+            "model_id": result.model_id,
+            "model_name": result.model_name,
+            "context_window": N_CTX if not use_cli else 200000,
+            "temperature": req.temperature,
+        },
+        usage={
+            "input_tokens": result.input_tokens,
+            "output_tokens": result.output_tokens,
+            "total_tokens": result.input_tokens + result.output_tokens,
+        },
+        generation_time_s=round(generation_time, 2),
+    )
+
+
+@app.post("/parse-resume", response_model=ParseResumeResponse)
+async def parse_resume(req: ParseResumeRequest):
+    """Extract structured experience entries from resume text using the LLM."""
+    use_cli = _is_cli_model(req.model_id)
+
+    if not use_cli and mm.llm is None:
+        raise HTTPException(status_code=503, detail="No model loaded. Use POST /switch-model to load one.")
+
+    if not req.resume_text.strip():
+        raise HTTPException(status_code=400, detail="resume_text is empty")
+
+    logger.info(f"Parsing resume text ({len(req.resume_text)} chars) [model: {req.model_id or 'local'}]")
+
+    start = time.time()
+    try:
+        provider = get_provider(req.model_id, cli_path=req.cli_path)
+        system_msg, user_msg = build_parse_resume_messages(req)
+        result = provider.generate(system_msg, user_msg, max_tokens=min(req.max_tokens, 4096), temperature=req.temperature)
+    except Exception as e:
+        logger.error(f"Resume parse error: {e}")
+        raise HTTPException(status_code=500, detail=f"Parsing failed: {e}")
+
+    generation_time = time.time() - start
+    text = result.text
 
     if not text:
         raise HTTPException(status_code=500, detail="Model produced empty output")
 
-    usage = output.get("usage", {})
-    logger.info(f"Cover letter generated in {generation_time:.2f}s ({usage.get('total_tokens', 0)} tokens)")
+    try:
+        json_match = re.search(r'\[[\s\S]*\]', text)
+        raw = json.loads(json_match.group() if json_match else text)
+        entries = [ParsedExperienceEntry(**item) for item in raw]
+    except (json.JSONDecodeError, ValueError, TypeError) as e:
+        logger.error(f"Failed to parse LLM output as JSON: {text[:500]}")
+        raise HTTPException(status_code=500, detail=f"Failed to parse LLM output: {e}")
 
-    return CoverLetterResponse(
-        cover_letter=text,
-        model_info={
-            "model_id": active_model_id,
-            "model_name": AVAILABLE_MODELS[active_model_id]["name"] if active_model_id else "unknown",
-            "context_window": N_CTX,
-            "temperature": req.temperature,
-        },
-        usage={
-            "input_tokens": usage.get("prompt_tokens", 0),
-            "output_tokens": usage.get("completion_tokens", 0),
-            "total_tokens": usage.get("total_tokens", 0),
-        },
-        generation_time_s=round(generation_time, 2),
-    )
+    logger.info(f"Parsed {len(entries)} experience entries in {generation_time:.2f}s")
+    return ParseResumeResponse(entries=entries, generation_time_s=round(generation_time, 2))
+
+
+@app.post("/answer-form-fields", response_model=AnswerFormFieldsResponse)
+async def answer_form_fields(req: AnswerFormFieldsRequest):
+    """Suggest answers for skipped form fields using candidate profile + experience."""
+    use_cli = _is_cli_model(req.model_id)
+
+    if not use_cli and mm.llm is None:
+        raise HTTPException(status_code=503, detail="No model loaded. Use POST /switch-model to load one.")
+
+    if not req.form_fields:
+        raise HTTPException(status_code=400, detail="form_fields is empty")
+
+    logger.info(f"Answering {len(req.form_fields)} form fields for {req.role} at {req.company} [model: {req.model_id or 'local'}]")
+
+    start = time.time()
+    try:
+        provider = get_provider(req.model_id, cli_path=req.cli_path)
+        system_msg, user_msg = build_answer_form_fields_messages(req, full_context=use_cli)
+        result = provider.generate(system_msg, user_msg, max_tokens=min(req.max_tokens, 4096), temperature=req.temperature)
+    except Exception as e:
+        logger.error(f"Form field answering error: {e}")
+        raise HTTPException(status_code=500, detail=f"Answering failed: {e}")
+
+    generation_time = time.time() - start
+    text = result.text
+
+    if not text:
+        raise HTTPException(status_code=500, detail="Model produced empty output")
+
+    try:
+        json_match = re.search(r'\[[\s\S]*\]', text)
+        raw = json.loads(json_match.group() if json_match else text)
+        answers = [FormFieldAnswer(**item) for item in raw]
+    except (json.JSONDecodeError, ValueError, TypeError) as e:
+        logger.error(f"Failed to parse form field answers: {text[:500]}")
+        raise HTTPException(status_code=500, detail=f"Failed to parse LLM output: {e}")
+
+    logger.info(f"Answered {len(answers)} fields in {generation_time:.2f}s")
+    return AnswerFormFieldsResponse(answers=answers, generation_time_s=round(generation_time, 2))
 
 
 @app.post("/delete-model", response_model=DeleteModelResponse)
@@ -641,22 +445,19 @@ async def delete_model(req: DeleteModelRequest):
     if req.model_id not in AVAILABLE_MODELS:
         raise HTTPException(status_code=400, detail=f"Unknown model: {req.model_id}")
 
-    st = _model_status[req.model_id]
+    st = mm._model_status[req.model_id]
     if st["status"] in ("downloading", "loading"):
         raise HTTPException(status_code=409, detail="Cannot delete while model is downloading or loading")
 
-    path = model_path(req.model_id)
+    path = mm.model_path(req.model_id)
 
-    # Unload if this is the active model
-    if req.model_id == active_model_id:
-        unload_model()
+    if req.model_id == mm.active_model_id:
+        mm.unload_model()
 
-    # Delete the file
     if path.exists():
         path.unlink()
         logger.info(f"Deleted model file: {path}")
 
-    # Reset status
     st["status"] = "idle"
     st["download_progress"] = 0.0
     st["current_step"] = ""

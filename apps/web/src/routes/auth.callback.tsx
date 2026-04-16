@@ -7,7 +7,7 @@ export const Route = createFileRoute('/auth/callback')({
     if (code) {
       await processGmailCallback({ data: { code } })
     }
-    throw redirect({ to: '/setup' })
+    throw redirect({ to: '/settings' })
   },
   component: () => null,
 })

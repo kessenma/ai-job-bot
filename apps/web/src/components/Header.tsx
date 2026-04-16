@@ -1,8 +1,9 @@
 import { useNavigate, useRouterState } from '@tanstack/react-router'
-import { SquaresFour, Robot, EnvelopeSimple, GearSix, BookOpen, Table } from '@phosphor-icons/react'
+import { SquaresFour, Robot, Funnel, GearSix, CircleNotch, CheckCircle, Warning } from '@phosphor-icons/react'
 import PillNav from './PillNav'
 import Dock from './Dock'
-import { useScanContext } from '#/hooks/useScanContext.tsx'
+import { useScanContext, type LinkedInScanState } from '#/hooks/useScanContext.tsx'
+import type { ReactNode } from 'react'
 
 export default function Header() {
   const navigate = useNavigate()
@@ -39,6 +40,73 @@ function UnauthenticatedNav({ currentPath }: { currentPath: string }) {
   )
 }
 
+function buildPipelineTooltip(descScan: { active: boolean; progress: { current: number; total: number; currentJob: string } }, linkedInScan: LinkedInScanState): ReactNode | undefined {
+  // LinkedIn scan active
+  if (linkedInScan.active) {
+    return (
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5">
+          <CircleNotch className="h-3 w-3 animate-spin text-[var(--lagoon,#56c6be)]" />
+          <span className="text-[11px] font-medium">{linkedInScan.stageLabel}</span>
+        </div>
+        <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+          <div
+            className="h-full rounded-full bg-[var(--lagoon,#56c6be)] transition-all duration-300"
+            style={{ width: `${Math.max(linkedInScan.progress * 100, 5)}%` }}
+          />
+        </div>
+        {linkedInScan.scannedSoFar !== undefined && (
+          <div className="text-[10px] text-neutral-400">
+            Scanned {linkedInScan.scannedSoFar} jobs, {linkedInScan.matchedSoFar ?? 0} matches
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // Desc scan active
+  if (descScan.active && descScan.progress.total > 0) {
+    return (
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-1.5">
+          <CircleNotch className="h-3 w-3 animate-spin text-[var(--lagoon,#56c6be)]" />
+          <span className="text-[11px] font-medium">Scraping descriptions</span>
+        </div>
+        <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
+          <div
+            className="h-full rounded-full bg-[var(--lagoon,#56c6be)] transition-all duration-300"
+            style={{ width: `${(descScan.progress.current / descScan.progress.total) * 100}%` }}
+          />
+        </div>
+        <div className="text-[10px] text-neutral-400">
+          {descScan.progress.current}/{descScan.progress.total} — {descScan.progress.currentJob}
+        </div>
+      </div>
+    )
+  }
+
+  // LinkedIn scan done/error (show last result)
+  if (linkedInScan.stage === 'done' && linkedInScan.stageLabel) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <CheckCircle className="h-3 w-3 text-green-400" />
+        <span className="text-[11px]">{linkedInScan.stageLabel}</span>
+      </div>
+    )
+  }
+
+  if (linkedInScan.stage === 'error' && linkedInScan.stageLabel) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <Warning className="h-3 w-3 text-red-400" />
+        <span className="text-[11px]">{linkedInScan.stageLabel}</span>
+      </div>
+    )
+  }
+
+  return undefined // fall back to plain label
+}
+
 function AuthenticatedNav({ navigate }: { navigate: ReturnType<typeof useNavigate> }) {
   const { descScan, linkedInScan } = useScanContext()
   const descProgress = descScan.active && descScan.progress.total > 0
@@ -48,32 +116,33 @@ function AuthenticatedNav({ navigate }: { navigate: ReturnType<typeof useNavigat
   // Show whichever scan is active (desc scan takes priority if both somehow run)
   const scanProgress = descProgress ?? liProgress
 
+  const tooltip = buildPipelineTooltip(descScan, linkedInScan)
+
+  // Badge: show saved count when done, or spinning indicator when active
+  const badge = linkedInScan.stage === 'done' && linkedInScan.savedCount
+    ? linkedInScan.savedCount
+    : descScan.active
+      ? descScan.progress.current
+      : undefined
+
   const dockItems = [
     {
       icon: <SquaresFour className="h-6 w-6 text-[var(--lagoon)]" />,
-      label: 'Dashboard',
+      label: 'Jobs',
       onClick: () => navigate({ to: '/dashboard' }),
     },
     {
-      icon: <Robot className="h-6 w-6 text-[var(--lagoon)]" />,
-      label: 'Auto Apply',
-      onClick: () => navigate({ to: '/auto-apply' }),
-    },
-    {
-      icon: <EnvelopeSimple className="h-6 w-6 text-[var(--lagoon)]" />,
-      label: 'Follow Up',
-      onClick: () => navigate({ to: '/follow-up' }),
-    },
-    {
-      icon: <Table className="h-6 w-6 text-[var(--lagoon)]" />,
-      label: 'Sheets',
-      onClick: () => navigate({ to: '/sheets' }),
-    },
-    {
-      icon: <BookOpen className="h-6 w-6 text-[var(--lagoon)]" />,
-      label: scanProgress !== undefined ? `Setup (${Math.round(scanProgress * 100)}%)` : 'Setup',
-      onClick: () => navigate({ to: '/setup' }),
+      icon: <Funnel className="h-6 w-6 text-[var(--lagoon)]" />,
+      label: scanProgress !== undefined ? `Pipeline (${Math.round(scanProgress * 100)}%)` : 'Pipeline',
+      onClick: () => navigate({ to: '/pipeline' }),
       progress: scanProgress,
+      tooltip,
+      badge,
+    },
+    {
+      icon: <Robot className="h-6 w-6 text-[var(--lagoon)]" />,
+      label: 'Apply',
+      onClick: () => navigate({ to: '/auto-apply' }),
     },
     {
       icon: <GearSix className="h-6 w-6 text-[var(--lagoon)]" />,

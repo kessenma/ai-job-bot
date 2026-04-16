@@ -2,30 +2,31 @@ FROM oven/bun:1.3.4
 
 WORKDIR /app
 
-# Install Playwright system dependencies + Chromium
+# Install Playwright system dependencies
 RUN apt-get update && apt-get install -y \
     libnss3 libatk-bridge2.0-0 libdrm2 libxcomposite1 libxdamage1 \
     libxrandr2 libgbm1 libasound2 libpangocairo-1.0-0 libgtk-3-0 \
     libxshmfence1 fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 
+# Install deps — cached unless package.json changes
 COPY package.json ./
 RUN bun install
+
+# Install Chromium — cached unless bun install layer changes
 RUN bunx playwright install chromium
 
-# Create non-root user
+# Create non-root user and copy Playwright browsers BEFORE source
+# so code changes don't invalidate the ~200MB browser layer
 RUN groupadd --system --gid 1001 appuser && \
-    useradd --system --uid 1001 --gid appuser --create-home appuser
-
-COPY src ./src
-
-# Copy Playwright browsers to appuser home
-RUN mkdir -p /home/appuser/.cache && \
+    useradd --system --uid 1001 --gid appuser --create-home appuser && \
+    mkdir -p /home/appuser/.cache && \
     cp -r /root/.cache/ms-playwright /home/appuser/.cache/ms-playwright && \
-    chown -R appuser:appuser /home/appuser/.cache
+    chown -R appuser:appuser /home/appuser/.cache && \
+    mkdir -p /app/data && chown appuser:appuser /app/data
 
-# Create writable data directory for persistent state (LinkedIn profiles, etc.)
-RUN mkdir -p /app/data && chown appuser:appuser /app/data
+# Copy source LAST — only this layer busts on code changes
+COPY src ./src
 
 USER appuser
 

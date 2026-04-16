@@ -1,8 +1,9 @@
-import { HeadContent, Scripts, Outlet, createRootRoute } from '@tanstack/react-router'
+import { HeadContent, Scripts, Outlet, createRootRoute, useMatch } from '@tanstack/react-router'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
 import Header from '../components/Header'
-import { ScanProvider } from '#/hooks/useScanContext.tsx'
+import { ScanProvider, useScanContext } from '#/hooks/useScanContext.tsx'
+import { BotViewerPanel } from '#/components/ui/BotViewerPanel.tsx'
 import { getAuthState } from '#/lib/gmail.api.ts'
 
 import appCss from '../styles.css?url'
@@ -38,11 +39,33 @@ export const Route = createRootRoute({
   shellComponent: RootShell,
 })
 
+function FloatingBotViewer() {
+  const { linkedInScan, botStream } = useScanContext()
+  const onPipeline = useMatch({ from: '/pipeline', shouldThrow: false })
+
+  // Don't render when user is on /pipeline — the in-page panel handles it there
+  if (onPipeline) return null
+
+  const streamHasData = botStream.connected || botStream.done || botStream.logs.length > 0 || botStream.latestScreenshot
+  if (!linkedInScan.active && !streamHasData) return null
+
+  return (
+    <div className="fixed bottom-4 right-4 z-50 w-[420px] max-h-[80vh] overflow-auto rounded-2xl shadow-2xl border border-[var(--line)] bg-[var(--surface)]">
+      <BotViewerPanel
+        stream={botStream}
+        isSearching={linkedInScan.active}
+        title="LinkedIn Search"
+      />
+    </div>
+  )
+}
+
 function RootComponent() {
   return (
     <ScanProvider>
       <Header />
       <Outlet />
+      <FloatingBotViewer />
     </ScanProvider>
   )
 }

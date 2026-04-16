@@ -6,9 +6,16 @@ import { eq, and, inArray } from 'drizzle-orm'
 const DATA_DIR = process.env.DATA_DIR || resolve(process.cwd(), 'data')
 const UPLOADS_DIR = resolve(DATA_DIR, 'uploads')
 
-export type UploadCategory = 'resume' | 'cover-letter'
+export type UploadCategory = 'resume' | 'cover-letter' | 'generated-cover-letter'
 
-const ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx']
+const ALLOWED_EXTENSIONS = ['.pdf', '.doc', '.docx', '.txt']
+
+const EXT_TO_MIME: Record<string, string> = {
+  '.pdf': 'application/pdf',
+  '.doc': 'application/msword',
+  '.docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  '.txt': 'text/plain',
+}
 
 function categoryDir(category: UploadCategory): string {
   const dir = resolve(UPLOADS_DIR, category)
@@ -25,6 +32,9 @@ export interface FileInfo {
   uploadedAt: string
   extractedText?: string
   embedded?: boolean
+  isPrimary?: boolean
+  driveFileId?: string
+  mimeType?: string
 }
 
 async function extractText(filePath: string, ext: string): Promise<string | null> {
@@ -51,7 +61,7 @@ export async function saveFile(
   category: UploadCategory,
   fileName: string,
   base64Data: string,
-  options?: { replaceAll?: boolean },
+  options?: { replaceAll?: boolean; driveFileId?: string; mimeType?: string },
 ): Promise<FileInfo> {
   const dir = categoryDir(category)
   const ext = extname(fileName).toLowerCase()
@@ -71,17 +81,12 @@ export async function saveFile(
     await db.delete(schema.uploads).where(eq(schema.uploads.category, category))
   }
 
-  let safeName: string
-  if (category === 'resume') {
-    safeName = `resume${ext}`
-  } else {
-    const base = fileName
-      .substring(0, fileName.lastIndexOf('.'))
-      .replace(/[^a-zA-Z0-9._-]/g, '_')
-      .substring(0, 80)
-    const timestamp = Date.now()
-    safeName = `${base}_${timestamp}${ext}`
-  }
+  const base = fileName
+    .substring(0, fileName.lastIndexOf('.'))
+    .replace(/[^a-zA-Z0-9._-]/g, '_')
+    .substring(0, 80)
+  const timestamp = Date.now()
+  const safeName = `${base}_${timestamp}${ext}`
 
   const filePath = resolve(dir, safeName)
   const buffer = Buffer.from(base64Data, 'base64')
@@ -96,18 +101,23 @@ export async function saveFile(
       name: safeName,
       originalName: fileName,
       extractedText,
+      driveFileId: options?.driveFileId,
+      mimeType: options?.mimeType ?? EXT_TO_MIME[ext],
     })
     .onConflictDoUpdate({
       target: schema.uploads.name,
-      set: { originalName: fileName, extractedText, uploadedAt: new Date().toISOString() },
+      set: { originalName: fileName, extractedText, uploadedAt: new Date().toISOString(), driveFileId: options?.driveFileId, mimeType: options?.mimeType ?? EXT_TO_MIME[ext] },
     })
 
+  const resolvedMimeType = options?.mimeType ?? EXT_TO_MIME[ext]
   return {
     path: filePath,
     name: safeName,
     originalName: fileName,
     uploadedAt: new Date().toISOString(),
     extractedText: extractedText ?? undefined,
+    driveFileId: options?.driveFileId,
+    mimeType: resolvedMimeType,
   }
 }
 
@@ -141,25 +151,80 @@ export async function listFilesWithText(category: UploadCategory): Promise<FileI
     originalName: row.originalName,
     uploadedAt: row.uploadedAt,
     extractedText: row.extractedText ?? undefined,
+    isPrimary: row.isPrimary ?? false,
+    driveFileId: row.driveFileId ?? undefined,
+    mimeType: row.mimeType ?? undefined,
   }))
 }
 
-export async function readCoverLetterTexts(): Promise<string[]> {
-  const rows = await db
-    .select({ extractedText: schema.uploads.extractedText })
-    .from(schema.uploads)
-    .where(and(eq(schema.uploads.category, 'cover-letter')))
+export async function readCoverLetterTexts(sampleNames?: string[]): Promise<string[]> {
+  // If specific samples are requested, return those
+  if (sampleNames && sampleNames.length > 0) {
+    const rows = await db
+      .select({ extractedText: schema.uploads.extractedText })
+      .from(schema.uploads)
+      .where(and(eq(schema.uploads.category, 'cover-letter'), inArray(schema.uploads.name, sampleNames)))
+    return rows.filter((r) => r.extractedText).map((r) => r.extractedText!)
+  }
 
-  return rows.flatMap((r) => (r.extractedText ? [r.extractedText] : []))
+  const rows = await db
+    .select({ extractedText: schema.uploads.extractedText, isPrimary: schema.uploads.isPrimary })
+    .from(schema.uploads)
+    .where(eq(schema.uploads.category, 'cover-letter'))
+
+  const withText = rows.filter((r) => r.extractedText)
+  const favorites = withText.filter((r) => r.isPrimary)
+
+  // Use favorites if any are set, otherwise fall back to all samples
+  const selected = favorites.length > 0 ? favorites : withText
+
+  // Sort favorites first
+  const sorted = selected.sort((a, b) => (b.isPrimary ? 1 : 0) - (a.isPrimary ? 1 : 0))
+  return sorted.map((r) => r.extractedText!)
 }
 
 export async function readResumeText(): Promise<string> {
   const rows = await db
-    .select({ extractedText: schema.uploads.extractedText })
+    .select({ extractedText: schema.uploads.extractedText, isPrimary: schema.uploads.isPrimary })
     .from(schema.uploads)
     .where(eq(schema.uploads.category, 'resume'))
 
-  return rows[0]?.extractedText ?? ''
+  // Prefer the primary resume, fall back to first available
+  const primary = rows.find((r) => r.isPrimary)
+  return primary?.extractedText ?? rows[0]?.extractedText ?? ''
+}
+
+/** Returns texts for specific resumes by stored filename, concatenated. */
+export async function readResumeTextsByName(names: string[]): Promise<string> {
+  if (names.length === 0) return ''
+  const rows = await db
+    .select({ name: schema.uploads.name, originalName: schema.uploads.originalName, extractedText: schema.uploads.extractedText })
+    .from(schema.uploads)
+    .where(and(eq(schema.uploads.category, 'resume'), inArray(schema.uploads.name, names)))
+
+  const withText = rows.filter((r) => r.extractedText)
+  if (withText.length === 0) return ''
+  if (withText.length === 1) return withText[0].extractedText!
+  return withText.map((r) => `--- ${r.originalName} ---\n${r.extractedText}`).join('\n\n')
+}
+
+/** Returns all resume texts concatenated, with the primary resume first. */
+export async function readAllResumeTexts(): Promise<string> {
+  const rows = await db
+    .select({ originalName: schema.uploads.originalName, extractedText: schema.uploads.extractedText, isPrimary: schema.uploads.isPrimary })
+    .from(schema.uploads)
+    .where(eq(schema.uploads.category, 'resume'))
+
+  const sorted = rows
+    .filter((r) => r.extractedText)
+    .sort((a, b) => (b.isPrimary ? 1 : 0) - (a.isPrimary ? 1 : 0))
+
+  if (sorted.length === 0) return ''
+  if (sorted.length === 1) return sorted[0].extractedText!
+
+  return sorted
+    .map((r) => `--- ${r.originalName} ---\n${r.extractedText}`)
+    .join('\n\n')
 }
 
 export async function readDocumentTextsByName(names: string[]): Promise<string | undefined> {

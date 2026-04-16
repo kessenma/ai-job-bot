@@ -1,5 +1,7 @@
 export { ProgressBar } from './ProgressBar.tsx'
 export { StatCard } from './StatCard.tsx'
 export { StatusBadge } from './StatusBadge.tsx'
+export { StatusPill } from './StatusPill.tsx'
+export { CollapsibleSection } from './CollapsibleSection.tsx'
 export { DropZone } from './DropZone.tsx'
 export { ErrorAlert } from './ErrorAlert.tsx'

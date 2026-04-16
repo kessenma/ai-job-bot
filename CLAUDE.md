@@ -1,0 +1,1 @@
+This app is a job bot application bot meant to automate searching for, scraping job descriptions, saving to google sheets + a local sqlite db, and ultimately applying to jobs. there are a lot of other features the app has like embedding cover letters and CV's to assist with using an LLM to craft cover letters on demand for jobs and fill out questionaires on job forms.

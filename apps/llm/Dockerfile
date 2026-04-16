@@ -22,15 +22,16 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+# Install uv (pinned to avoid cache-busting on new releases)
+COPY --from=ghcr.io/astral-sh/uv:0.10.10 /uv /bin/uv
 
-# Install Python dependencies
+# Install Python dependencies (cache mount survives layer rebuilds)
 COPY pyproject.toml ./
-RUN uv pip install --system .
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system .
 
 # Copy application code
-COPY main.py embed.py ./
+COPY *.py ./
 
 # Models and cache directories will be mounted as volumes
 RUN mkdir -p /app/models /app/cache

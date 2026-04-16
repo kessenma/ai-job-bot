@@ -1,0 +1,23 @@
+services:
+  jobspy:
+    build:
+      context: ./apps/jobspy
+      dockerfile: Dockerfile
+    ports:
+      - "8085:8085"
+    environment:
+      PORT: 8085
+    restart: on-failure:3
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8085/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
+    networks:
+      - coolify
+
+networks:
+  coolify:
+    name: coolify
+    external: true

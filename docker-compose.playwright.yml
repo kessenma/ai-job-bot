@@ -10,6 +10,9 @@ services:
     environment:
       PORT: 8084
       DATA_DIR: /app/data
+      PROXY_LIST: ${PROXY_LIST:-}
+    volumes:
+      - playwright-data:/app/data
     restart: on-failure:3
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8084/health"]
@@ -24,3 +27,6 @@ networks:
   coolify:
     name: coolify
     external: true
+
+volumes:
+  playwright-data:

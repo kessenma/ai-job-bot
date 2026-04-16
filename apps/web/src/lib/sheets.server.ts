@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync, existsSync, unlinkSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { classifyATS } from './ats-classifier.ts'
 import { getAuthenticatedClient, isAuthenticated } from './gmail.server.ts'
+import { getWorkspaceSheetId, getWorkspaceSheetUrl } from './drive-workspace.server.ts'
 import type { JobLead } from './types.ts'
 
 const DATA_DIR = process.env.DATA_DIR || resolve(process.cwd(), 'data')
@@ -57,11 +58,17 @@ function loadConfig(): { url: string; sheetId: string } | null {
 }
 
 export function getSheetId(): string | null {
+  // Priority: workspace config → manual config → env var
+  const workspaceId = getWorkspaceSheetId()
+  if (workspaceId) return workspaceId
   if (process.env.GOOGLE_SHEET_ID) return process.env.GOOGLE_SHEET_ID
   return loadConfig()?.sheetId ?? null
 }
 
 export function getSheetUrl(): string | null {
+  // Priority: workspace config → manual config → env var
+  const workspaceUrl = getWorkspaceSheetUrl()
+  if (workspaceUrl) return workspaceUrl
   const config = loadConfig()
   if (config) return config.url
   if (process.env.GOOGLE_SHEET_ID) {
@@ -219,116 +226,36 @@ export function clearSheetsCache() {
   cachedAt = 0
 }
 
-// --- Auto-search tab write support ---
+// --- Unified "Job Search" tab (replaces old "auto-search" and "job-scrape" tabs) ---
 
-const AUTO_SEARCH_TAB = 'auto-search'
+const JOB_SEARCH_TAB = 'Job Search'
 
-// Headers matching the existing sheet column format
-const AUTO_SEARCH_HEADERS = [
-  'Date',
+const JOB_SEARCH_HEADERS = [
+  'Date Found',
+  'Platform',
   'Company',
   'Role',
-  'Location',
-  'Recruiter LinkedIn Link',
-  'Recruiter Email ID',
-  'Recruiter Phone Number',
-  'Link to the Position',
-  'Activity Status',
-  'Alignment Status',
-  "Candidates Remarks if the leads are not aligned/Partially aligned",
-  'Application Status',
-  'Follow Up Email Status',
-  "Account Manager's Remarks regarding Applications",
+  'Country',
+  'State',
+  'City',
+  'Job URL (Employer)',
+  'Source URL',
+  'Status',
+  'Score',
+  'Searched',
+  'Drafted',
+  'Applied',
+  'Expired',
+  'Response',
+  'Recruiter Email',
+  'Recruiter Phone',
+  'Work Type',
+  'Sponsorship',
+  'Skills Matched',
+  'Skills Missing',
 ]
 
-export async function ensureAutoSearchTab(): Promise<void> {
-  const sheetId = getSheetId()
-  if (!sheetId) throw new Error('No Google Sheet configured')
-  if (!isAuthenticated()) throw new Error('Not authenticated. Connect your Google account first.')
-
-  const auth = getAuthenticatedClient()
-  const sheets = google.sheets({ version: 'v4', auth })
-
-  // Check if tab already exists
-  const meta = await sheets.spreadsheets.get({ spreadsheetId: sheetId })
-  const existingTabs = meta.data.sheets?.map((s) => s.properties?.title).filter(Boolean) as string[]
-
-  if (existingTabs.includes(AUTO_SEARCH_TAB)) return
-
-  // Create the tab
-  await sheets.spreadsheets.batchUpdate({
-    spreadsheetId: sheetId,
-    requestBody: {
-      requests: [{ addSheet: { properties: { title: AUTO_SEARCH_TAB } } }],
-    },
-  })
-
-  // Write the header row
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: sheetId,
-    range: `'${AUTO_SEARCH_TAB}'!A1`,
-    valueInputOption: 'RAW',
-    requestBody: { values: [AUTO_SEARCH_HEADERS] },
-  })
-}
-
-export async function appendJobToAutoSearchTab(job: {
-  company: string
-  role: string
-  location: string
-  jobUrl: string
-  date?: string
-}): Promise<void> {
-  const sheetId = getSheetId()
-  if (!sheetId) throw new Error('No Google Sheet configured')
-  if (!isAuthenticated()) throw new Error('Not authenticated. Connect your Google account first.')
-
-  const auth = getAuthenticatedClient()
-  const sheets = google.sheets({ version: 'v4', auth })
-
-  const row = [
-    job.date || new Date().toISOString().split('T')[0], // Date
-    job.company,                                         // Company
-    job.role,                                            // Role
-    job.location,                                        // Location
-    '',                                                  // Recruiter LinkedIn
-    '',                                                  // Recruiter Email
-    '',                                                  // Recruiter Phone
-    job.jobUrl,                                          // Link to the Position
-    'New',                                               // Activity Status
-    '',                                                  // Alignment Status
-    '',                                                  // Candidate Remarks
-    'Not Applied',                                       // Application Status
-    '',                                                  // Follow Up Email Status
-    '',                                                  // Account Manager Remarks
-  ]
-
-  await sheets.spreadsheets.values.append({
-    spreadsheetId: sheetId,
-    range: `'${AUTO_SEARCH_TAB}'!A:N`,
-    valueInputOption: 'RAW',
-    requestBody: { values: [row] },
-  })
-}
-
-// --- Job-scrape tab write support ---
-
-const JOB_SCRAPE_TAB = 'job-scrape'
-
-const JOB_SCRAPE_HEADERS = [
-  'Date',
-  'Company',
-  'Role',
-  'Location',
-  'LinkedIn Job URL',
-  'External Job URL',
-  'Matched Skills',
-  'Missing Skills',
-  'Description',
-  'Search Keywords',
-]
-
-export async function ensureJobScrapeTab(): Promise<void> {
+export async function ensureJobSearchTab(): Promise<void> {
   const sheetId = getSheetId()
   if (!sheetId) throw new Error('No Google Sheet configured')
   if (!isAuthenticated()) throw new Error('Not authenticated. Connect your Google account first.')
@@ -339,33 +266,68 @@ export async function ensureJobScrapeTab(): Promise<void> {
   const meta = await sheets.spreadsheets.get({ spreadsheetId: sheetId })
   const existingTabs = meta.data.sheets?.map((s) => s.properties?.title).filter(Boolean) as string[]
 
-  if (existingTabs.includes(JOB_SCRAPE_TAB)) return
+  if (!existingTabs.includes(JOB_SEARCH_TAB)) {
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId: sheetId,
+      requestBody: {
+        requests: [{ addSheet: { properties: { title: JOB_SEARCH_TAB } } }],
+      },
+    })
 
-  await sheets.spreadsheets.batchUpdate({
-    spreadsheetId: sheetId,
-    requestBody: {
-      requests: [{ addSheet: { properties: { title: JOB_SCRAPE_TAB } } }],
-    },
-  })
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: sheetId,
+      range: `'${JOB_SEARCH_TAB}'!A1`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [JOB_SEARCH_HEADERS] },
+    })
+    return
+  }
 
-  await sheets.spreadsheets.values.update({
+  // Existing tab: reset headers if they've drifted
+  const existingHeaderRes = await sheets.spreadsheets.values.get({
     spreadsheetId: sheetId,
-    range: `'${JOB_SCRAPE_TAB}'!A1`,
-    valueInputOption: 'RAW',
-    requestBody: { values: [JOB_SCRAPE_HEADERS] },
+    range: `'${JOB_SEARCH_TAB}'!1:1`,
   })
+  const existingHeaders = (existingHeaderRes.data.values?.[0] ?? []) as string[]
+  const headersMatch = existingHeaders.length === JOB_SEARCH_HEADERS.length &&
+    existingHeaders.every((header, i) => header === JOB_SEARCH_HEADERS[i])
+
+  if (!headersMatch) {
+    await sheets.spreadsheets.values.clear({
+      spreadsheetId: sheetId,
+      range: `'${JOB_SEARCH_TAB}'!A:ZZ`,
+    })
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: sheetId,
+      range: `'${JOB_SEARCH_TAB}'!A1`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [JOB_SEARCH_HEADERS] },
+    })
+  }
 }
 
-export async function appendJobsToJobScrapeTab(jobs: {
+export async function appendToJobSearchTab(jobs: {
   company: string
   role: string
-  location: string
+  country?: string
+  state?: string
+  city?: string
+  platform: string
   jobUrl: string
-  externalUrl: string
-  matchedSkills: string[]
-  missingSkills: string[]
-  description: string
-  searchKeywords: string
+  sourceUrl?: string
+  status?: string
+  score?: number | null
+  searchedAt?: string
+  draftedAt?: string
+  appliedAt?: string
+  expiredAt?: string
+  respondedAt?: string
+  recruiterEmail?: string
+  recruiterPhone?: string
+  workType?: string
+  sponsorship?: string
+  matchedSkills?: string[]
+  missingSkills?: string[]
   date?: string
 }[]): Promise<void> {
   if (jobs.length === 0) return
@@ -379,21 +341,107 @@ export async function appendJobsToJobScrapeTab(jobs: {
 
   const rows = jobs.map((job) => [
     job.date || new Date().toISOString().split('T')[0],
+    job.platform,
     job.company,
     job.role,
-    job.location,
+    job.country || '',
+    job.state || '',
+    job.city || '',
     job.jobUrl,
-    job.externalUrl,
-    job.matchedSkills.join(', '),
-    job.missingSkills.join(', '),
-    job.description.slice(0, 500),
-    job.searchKeywords,
+    job.sourceUrl || '',
+    job.status || 'new',
+    job.score != null ? String(job.score) : '',
+    job.searchedAt || '',
+    job.draftedAt || '',
+    job.appliedAt || '',
+    job.expiredAt || '',
+    job.respondedAt || '',
+    job.recruiterEmail || '',
+    job.recruiterPhone || '',
+    job.workType || '',
+    job.sponsorship || '',
+    job.matchedSkills?.join(', ') || '',
+    job.missingSkills?.join(', ') || '',
   ])
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: sheetId,
-    range: `'${JOB_SCRAPE_TAB}'!A:J`,
+    range: `'${JOB_SEARCH_TAB}'!A:Z`,
     valueInputOption: 'RAW',
     requestBody: { values: rows },
   })
 }
+
+// --- Import jobs from recruiter's sheet into SQLite ---
+
+export async function importJobsFromSheet(): Promise<{ imported: number; skipped: number; updated: number }> {
+  const { db, schema } = await import('@job-app-bot/db')
+  const { eq, or } = await import('drizzle-orm')
+  const { ensureDb } = await import('@job-app-bot/db/init')
+
+  await ensureDb()
+
+  const sheetJobs = await loadJobsFromSheet()
+  let imported = 0
+  let skipped = 0
+  let updated = 0
+
+  for (const job of sheetJobs) {
+    // Dedup by jobUrl if available, otherwise by company + role
+    let existing: { id: number }[] = []
+    if (job.jobUrl) {
+      existing = await db
+        .select({ id: schema.jobs.id })
+        .from(schema.jobs)
+        .where(eq(schema.jobs.jobUrl, job.jobUrl))
+        .limit(1)
+    }
+    if (existing.length === 0 && job.company && job.role) {
+      existing = await db
+        .select({ id: schema.jobs.id })
+        .from(schema.jobs)
+        .where(
+          or(
+            // Also check sourceUrl in case the LinkedIn URL was stored as sourceUrl
+            job.jobUrl ? eq(schema.jobs.sourceUrl, job.jobUrl) : undefined,
+          ) ?? eq(schema.jobs.company, job.company),
+        )
+        .limit(1)
+    }
+
+    if (existing.length > 0) {
+      skipped++
+      continue
+    }
+
+    await db.insert(schema.jobs).values({
+      date: job.date || null,
+      company: job.company,
+      role: job.role || null,
+      location: job.location || null,
+      recruiterLinkedin: job.recruiterLinkedin || null,
+      recruiterEmail: job.recruiterEmail || null,
+      recruiterPhone: job.recruiterPhone || null,
+      jobUrl: job.jobUrl || null,
+      activityStatus: job.activityStatus || null,
+      alignmentStatus: job.alignmentStatus || null,
+      candidateRemarks: job.candidateRemarks || null,
+      applicationStatus: job.applicationStatus || null,
+      followUpEmailStatus: job.followUpEmailStatus || null,
+      accountManagerRemarks: job.accountManagerRemarks || null,
+      atsPlatform: job.atsPlatform || 'unknown',
+      source: 'sheets',
+    })
+    imported++
+  }
+
+  // Log the sync
+  await db.insert(schema.syncLog).values({
+    source: 'sheets',
+    status: 'success',
+    jobsCount: imported,
+  })
+
+  return { imported, skipped, updated }
+}
+

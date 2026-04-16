@@ -12,9 +12,13 @@ import { getCoverLetters } from '#/lib/resume.api.ts'
 import { getSavedEmails } from '#/lib/gmail.api.ts'
 import { getJobDescriptions } from '#/lib/playwright.api.ts'
 import { ATS_DIFFICULTY } from '#/lib/ats-classifier.ts'
+import { STATUS_COLORS, DIFFICULTY_COLORS, getStatusColorKey } from '#/lib/color-maps.ts'
+import { filterJobsByTab, computeJobStats, type FilterTab } from '#/lib/job-filters.ts'
 import type { ATSPlatform, JobLead } from '#/lib/types.ts'
 import type { ScannedEmail } from '#/lib/gmail.server.ts'
 import { requireAuth } from '#/lib/auth-guard.ts'
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '#/components/ui/table.tsx'
+import { PipelineFunnel } from '#/components/PipelineFunnel.tsx'
 import { DashboardJobSheet, type CoverLetterMap, type JobDescriptionMap } from '#/components/DashboardJobSheet.tsx'
 import { DashboardSkeleton } from '#/components/examples/skeleton/table/skeleton-table-2.tsx'
 import { MobileDashboardCards } from '#/components/MobileDashboardCards.tsx'
@@ -36,24 +40,6 @@ export const Route = createFileRoute('/dashboard')({
   component: Dashboard,
 })
 
-type FilterTab = 'all' | 'ready' | 'applied' | 'followup' | 'rejected' | 'expired'
-
-const statusColors: Record<string, string> = {
-  submitted: 'bg-blue-500/15 text-blue-700',
-  applied: 'bg-blue-500/15 text-blue-700',
-  rejected: 'bg-red-500/15 text-red-700',
-  interview: 'bg-purple-500/15 text-purple-700',
-  'action needed': 'bg-orange-500/15 text-orange-700',
-  'not submitted': 'bg-gray-500/15 text-gray-600',
-  expired: 'bg-gray-500/15 text-gray-600',
-}
-
-const diffColors = {
-  easy: 'bg-green-500/15 text-green-700',
-  medium: 'bg-yellow-500/15 text-yellow-700',
-  hard: 'bg-red-500/15 text-red-700',
-}
-
 
 function Dashboard() {
   const { jobs, savedEmails, jobCoverLetters: initialCLMap, coverLetterSamples, jobDescriptions: initialDescMap } = Route.useLoaderData()
@@ -69,60 +55,9 @@ function Dashboard() {
     emailsByCompany.set(result.company.trim().toLowerCase(), result.emails)
   }
 
-  const filtered = jobs.filter((j) => {
-    if (platformFilter !== 'all' && j.atsPlatform !== platformFilter) return false
-    const status = j.applicationStatus.toLowerCase()
-    const activity = j.activityStatus.toLowerCase()
-    switch (tab) {
-      case 'ready':
-        return (
-          activity.includes('candidate should apply') ||
-          status.includes('action needed') ||
-          (activity.includes('applied') === false &&
-            !activity.includes('expired') &&
-            !activity.includes('will not'))
-        )
-      case 'applied':
-        return status.includes('submitted') || status.includes('applied')
-      case 'followup':
-        return (
-          (status.includes('submitted') || status.includes('applied')) &&
-          j.recruiterEmail &&
-          j.recruiterEmail !== 'N/A' &&
-          j.recruiterEmail !== 'Unavailable' &&
-          !j.recruiterEmail.includes('Unavailable') &&
-          !j.followUpEmailStatus?.toLowerCase().includes('sent')
-        )
-      case 'rejected':
-        return status.includes('rejected')
-      case 'expired':
-        return activity.includes('expired') || status.includes('expired')
-      default:
-        return true
-    }
-  })
-
+  const filtered = filterJobsByTab(jobs, tab, platformFilter)
   const platforms = [...new Set(jobs.map((j) => j.atsPlatform))].sort()
-
-  const stats = {
-    total: jobs.length,
-    submitted: jobs.filter((j) => j.applicationStatus.toLowerCase().includes('submitted')).length,
-    interview: jobs.filter((j) => j.applicationStatus.toLowerCase().includes('interview')).length,
-    rejected: jobs.filter((j) => j.applicationStatus.toLowerCase().includes('rejected')).length,
-    needsAction: jobs.filter(
-      (j) =>
-        j.activityStatus.toLowerCase().includes('candidate should apply') ||
-        j.applicationStatus.toLowerCase().includes('action needed'),
-    ).length,
-    canAutoApply: jobs.filter(
-      (j) =>
-        ATS_DIFFICULTY[j.atsPlatform] === 'easy' &&
-        !j.activityStatus.toLowerCase().includes('expired') &&
-        !j.applicationStatus.toLowerCase().includes('submitted') &&
-        !j.applicationStatus.toLowerCase().includes('rejected') &&
-        !j.activityStatus.toLowerCase().includes('will not'),
-    ).length,
-  }
+  const stats = computeJobStats(jobs)
 
   const tabs: { key: FilterTab; label: string; count?: number }[] = [
     { key: 'all', label: 'All', count: jobs.length },
@@ -139,6 +74,9 @@ function Dashboard() {
 
   return (
     <main className="page-wrap px-4 pb-8 pt-14">
+      {/* Pipeline funnel */}
+      <PipelineFunnel jobs={jobs} descMap={descMap} />
+
       {/* Stats */}
       <section className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <StatCard label="Total" count={stats.total} cls="bg-blue-500/10 text-blue-700" icon={<BriefcaseIcon className="h-4 w-4 opacity-60" />} />
@@ -190,49 +128,61 @@ function Dashboard() {
       {isMobile ? (
         <MobileDashboardCards jobs={filtered} clMap={clMap} onSelectJob={setSelectedJob} />
       ) : (
-        <div className="rounded-xl border border-[var(--line)] bg-[var(--surface)] overflow-hidden">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-[var(--line)] bg-[var(--surface-strong)]">
-                <th className="px-4 py-3 text-left text-xs font-medium text-[var(--sea-ink-soft)] uppercase tracking-wider">Company</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-[var(--sea-ink-soft)] uppercase tracking-wider">Role</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-[var(--sea-ink-soft)] uppercase tracking-wider hidden sm:table-cell">Location</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-[var(--sea-ink-soft)] uppercase tracking-wider">ATS</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-[var(--sea-ink-soft)] uppercase tracking-wider">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-[var(--sea-ink-soft)] uppercase tracking-wider hidden md:table-cell">Cover Letter</th>
-              </tr>
-            </thead>
-            <tbody>
+        <div className="island-shell overflow-hidden rounded-2xl">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Company</TableHead>
+                <TableHead>Role</TableHead>
+                <TableHead className="hidden sm:table-cell">Location</TableHead>
+                <TableHead>ATS</TableHead>
+                <TableHead className="hidden lg:table-cell">Fit</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="hidden md:table-cell">Cover Letter</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {filtered.length > 0 ? (
                 filtered.map((job) => {
                   const difficulty = ATS_DIFFICULTY[job.atsPlatform]
-                  const statusKey = Object.keys(statusColors).find((k) =>
-                    job.applicationStatus.toLowerCase().includes(k),
-                  )
+                  const statusKey = getStatusColorKey(job.applicationStatus)
                   const cl = clMap[job.jobUrl]
                   return (
-                    <tr
+                    <TableRow
                       key={job.jobUrl}
-                      className="border-b border-[var(--line)] cursor-pointer transition-colors hover:bg-[var(--surface-strong)]"
+                      className="cursor-pointer"
                       onClick={() => setSelectedJob(job)}
                     >
-                      <td className="px-4 py-3 font-semibold text-[var(--sea-ink)]">{job.company}</td>
-                      <td className="px-4 py-3 text-sm text-[var(--sea-ink-soft)] max-w-[200px] truncate" title={job.role}>{job.role}</td>
-                      <td className="px-4 py-3 text-sm text-[var(--sea-ink-soft)] max-w-[150px] truncate hidden sm:table-cell" title={job.location}>{job.location || '—'}</td>
-                      <td className="px-4 py-3">
+                      <TableCell className="font-semibold text-[var(--sea-ink)]">{job.company}</TableCell>
+                      <TableCell className="text-[var(--sea-ink-soft)] max-w-[200px] truncate" title={job.role}>{job.role}</TableCell>
+                      <TableCell className="text-[var(--sea-ink-soft)] max-w-[150px] truncate hidden sm:table-cell" title={job.location}>{job.location || '—'}</TableCell>
+                      <TableCell>
                         <div className="flex items-center gap-1.5">
                           <span className="rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider bg-[var(--surface)] text-[var(--sea-ink-soft)]">{job.atsPlatform}</span>
-                          <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${diffColors[difficulty]}`}>{difficulty}</span>
+                          <span className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${DIFFICULTY_COLORS[difficulty]}`}>{difficulty}</span>
                         </div>
-                      </td>
-                      <td className="px-4 py-3">
-                        {statusKey ? (
-                          <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColors[statusKey]}`}>{job.applicationStatus}</span>
+                      </TableCell>
+                      <TableCell className="hidden lg:table-cell">
+                        {job.suitabilityScore != null ? (
+                          <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                            job.suitabilityScore >= 7 ? 'bg-green-500/15 text-green-700' :
+                            job.suitabilityScore >= 4 ? 'bg-yellow-500/15 text-yellow-700' :
+                            'bg-red-500/15 text-red-700'
+                          }`}>
+                            {job.suitabilityScore}/10
+                          </span>
                         ) : (
-                          <span className="text-sm text-[var(--sea-ink-soft)]">{job.applicationStatus}</span>
+                          <span className="text-xs text-[var(--sea-ink-soft)]">—</span>
                         )}
-                      </td>
-                      <td className="px-4 py-3 hidden md:table-cell">
+                      </TableCell>
+                      <TableCell>
+                        {statusKey ? (
+                          <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_COLORS[statusKey]}`}>{job.applicationStatus}</span>
+                        ) : (
+                          <span className="text-[var(--sea-ink-soft)]">{job.applicationStatus}</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="hidden md:table-cell">
                         {cl ? (
                           <span className="inline-flex items-center gap-1 rounded-full bg-green-500/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-green-700">
                             <CheckCircle className="h-3 w-3" /> Attached
@@ -240,19 +190,19 @@ function Dashboard() {
                         ) : (
                           <span className="text-xs text-[var(--sea-ink-soft)]">—</span>
                         )}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   )
                 })
               ) : (
-                <tr>
-                  <td className="h-24 text-center text-[var(--sea-ink-soft)]" colSpan={6}>
+                <TableRow>
+                  <TableCell className="h-24 text-center text-[var(--sea-ink-soft)]" colSpan={7}>
                     No jobs match this filter.
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               )}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
 
